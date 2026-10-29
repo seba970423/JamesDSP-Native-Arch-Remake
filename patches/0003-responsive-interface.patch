@@ -37,7 +37,7 @@ index ec06dba..5838247 100644
 -    layout->addWidget(devices);
 -    newDevices = new QCheckBox(tr("Enable effects for new devices automatically"), this);
 +    layout->addWidget(devices, 1);
-+    newDevices = new QCheckBox(tr("Enable effects on new devices"), this);
++    newDevices = new QCheckBox(tr("Enable effects\nfor new devices"), this);
 +    newDevices->setObjectName("nativeNewDeviceEffects");
      layout->addWidget(newDevices);
      kernelStatus = new QLabel(this);
@@ -45,7 +45,7 @@ index ec06dba..5838247 100644
      kernelStatus->setWordWrap(true);
      layout->addWidget(kernelStatus);
 -    auto* refreshButton = new QPushButton(tr("Refresh devices and real-time status"), this);
-+    auto* refreshButton = new QPushButton(tr("Refresh devices and status"), this);
++    auto* refreshButton = new QPushButton(tr("Refresh devices\nand status"), this);
 +    refreshButton->setObjectName("nativeDeviceRefresh");
      layout->addWidget(refreshButton);
      connect(refreshButton, &QPushButton::clicked, this, [this] { refresh(); refreshKernel(); });
@@ -73,7 +73,7 @@ index ec06dba..5838247 100644
 +    contentLayout->addStretch();
 +    if (auto* allowlist = content->findChild<QCheckBox*>("blocklistInvert")) {
 +        allowlist->setToolTip(allowlist->text());
-+        allowlist->setText(tr("Process allowlisted apps only"));
++        allowlist->setText(tr("Process only\nallowlisted apps"));
 +    }
 +    auto* scroll = new QScrollArea(page);
 +    scroll->setObjectName("nativeDevicesScroll");
