@@ -195,20 +195,20 @@ diff --git a/src/interface/fragment/SettingsFragment.ui b/src/interface/fragment
 +             <item>
 +              <widget class="QGroupBox" name="systray_box">
 +               <property name="title">
-+                <string>Run in background (tray icon)</string>
++                <string>Run in background</string>
 +               </property>
 +               <layout class="QVBoxLayout" name="verticalLayout_7">
 +                <item>
 +                 <widget class="QRadioButton" name="systray_r_none">
 +                  <property name="text">
-+                   <string>Exit when closing the app</string>
++                   <string>Exit when closed</string>
 +                  </property>
 +                 </widget>
 +                </item>
 +                <item>
 +                 <widget class="QRadioButton" name="systray_r_showtray">
 +                  <property name="text">
-+                   <string>Keep running in the system tray</string>
++                   <string>Stay in tray</string>
 +                  </property>
 +                 </widget>
 +                </item>
@@ -221,7 +221,7 @@ diff --git a/src/interface/fragment/SettingsFragment.ui b/src/interface/fragment
 +                   <item>
 +                    <widget class="QCheckBox" name="systray_minOnBoot">
 +                     <property name="text">
-+                      <string>Start minimized on boot</string>
++                      <string>Start minimized</string>
 +                     </property>
 +                    </widget>
 +                   </item>
@@ -238,7 +238,7 @@ diff --git a/src/interface/fragment/SettingsFragment.ui b/src/interface/fragment
 +               </property>
 +               <layout class="QVBoxLayout" name="trayAppearanceLayout">
 +                <item>
-+                 <widget class="QComboBox" name="trayIconAppearance"/>
++                 <widget class="QComboBox" name="trayIconAppearance"><property name="sizePolicy"><sizepolicy hsizetype="Ignored" vsizetype="Fixed"><horstretch>0</horstretch><verstretch>0</verstretch></sizepolicy></property></widget>
 +                </item>
 +                <item>
 +                 <widget class="QLabel" name="trayAppearanceHelp">

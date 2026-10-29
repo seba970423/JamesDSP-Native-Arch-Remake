@@ -135,6 +135,27 @@ int main(int argc, char** argv) {
         for (const auto size : {QSize(685, 365), QSize(700, 450), QSize(1000, 650)}) {
             form.resize(size);
             for (int i = 0; i < 3; ++i) app.processEvents();
+            if (ui.traySettingsScroll->horizontalScrollBar()->maximum() != 0) {
+                std::cerr << "Tray horizontal overflow: font=" << points << "pt"
+                          << ", requested=" << size.width() << "x" << size.height()
+                          << ", viewport=" << ui.traySettingsScroll->viewport()->width()
+                          << ", content=" << ui.traySettingsContents->width()
+                          << ", maximum=" << ui.traySettingsScroll->horizontalScrollBar()->maximum()
+                          << std::endl;
+                const auto dump = [](const char* name, QWidget* child) {
+                    std::cerr << "  " << name << ": width=" << child->width()
+                              << " minHint=" << child->minimumSizeHint().width()
+                              << " sizeHint=" << child->sizeHint().width() << std::endl;
+                };
+                dump("tray content", ui.traySettingsContents);
+                dump("tray group", ui.systray_box);
+                dump("exit radio", ui.systray_r_none);
+                dump("tray radio", ui.systray_r_showtray);
+                dump("autostart checkbox", ui.systray_minOnBoot);
+                dump("appearance group", ui.trayAppearanceBox);
+                dump("appearance combo", ui.trayIconAppearance);
+                dump("appearance help", ui.trayAppearanceHelp);
+            }
             assert(ui.traySettingsScroll->horizontalScrollBar()->maximum() == 0);
             assert(ui.traySettingsContents->rect().contains(ui.trayAppearanceBox->geometry()));
             assert(!ui.trayAppearanceBox->geometry().intersects(ui.systray_box->geometry()));
