@@ -1,8 +1,15 @@
 name: Native PipeWire package
 on:
   push:
+    paths-ignore:
+      - '**/*.md'
   pull_request:
+    paths-ignore:
+      - '**/*.md'
   workflow_dispatch:
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -24,7 +31,7 @@ jobs:
       - name: Build and check package
         env:
           JDSP_NATIVE_PROFILE: ${{ matrix.profile }}
-        run: sudo -u builder --preserve-env=JDSP_NATIVE_PROFILE makepkg -p packaging/PKGBUILD.source --syncdeps --noconfirm --cleanbuild
+        run: sudo -u builder --preserve-env=JDSP_NATIVE_PROFILE makepkg -p PKGBUILD.source --syncdeps --noconfirm --cleanbuild
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: jamesdsp-native-arch-${{ matrix.profile }}

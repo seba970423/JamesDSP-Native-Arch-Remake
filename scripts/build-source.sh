@@ -11,7 +11,7 @@ source "${repo_root}/scripts/logs.sh"
 jdsp_setup_logs
 cd -- "${repo_root}"
 printf '%s\n' 'Maintainer source build: installing build dependencies first.'
-makepkg -p packaging/PKGBUILD.source --syncdeps --nobuild
+makepkg -p PKGBUILD.source --syncdeps --nobuild
 python3 scripts/run_logged.py --label 'Compiling patched JamesDSP' \
   --log "${JDSP_LOG_DIR}/source-build-$(date +%Y%m%d-%H%M%S).log" -- \
-  makepkg -p packaging/PKGBUILD.source --noextract --force
+  makepkg -p PKGBUILD.source --noextract --force
