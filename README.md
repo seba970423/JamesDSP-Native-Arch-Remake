@@ -25,6 +25,7 @@ is useful when the panel and application use different color schemes.
 From this project's directory, run as your normal user:
 
 ```bash
+git clone https://github.com/seba970423/JamesDSP-Native-Arch-Remake
 ./install.sh
 ```
 
