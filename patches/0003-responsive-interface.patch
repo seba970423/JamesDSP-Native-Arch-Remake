@@ -60,7 +60,7 @@ index ec06dba..5838247 100644
 +    content->setObjectName("nativeDevicesContent");
 +    auto* contentLayout = new QVBoxLayout(content);
 +    contentLayout->setContentsMargins(0, 0, 0, 0);
-+    contentLayout->setSizeConstraint(QLayout::SetMinAndMaxSize);
++    contentLayout->setSizeConstraint(QLayout::SetDefaultConstraint);
 +    contentLayout->addWidget(controls);
 +    while (auto* item = pageLayout->takeAt(0)) {
 +        if (auto* widget = item->widget()) {
@@ -73,7 +73,7 @@ index ec06dba..5838247 100644
 +    contentLayout->addStretch();
 +    if (auto* allowlist = content->findChild<QCheckBox*>("blocklistInvert")) {
 +        allowlist->setToolTip(allowlist->text());
-+        allowlist->setText(tr("Only process apps on the allowlist"));
++        allowlist->setText(tr("Process allowlisted apps only"));
 +    }
 +    auto* scroll = new QScrollArea(page);
 +    scroll->setObjectName("nativeDevicesScroll");
