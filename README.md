@@ -1,5 +1,7 @@
 # JamesDSP Native Arch
 
+[![Native PipeWire package CI](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/workflows/build.yml/badge.svg)](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/workflows/build.yml)
+
 Upstream JamesDSP, patched and packaged natively for Arch Linux and CachyOS.
 **PipeWire only. Experimental binary release: 0.2.2, x86_64.**
 
@@ -19,6 +21,34 @@ Automatic, Light (for dark panels), Dark (for light panels), or Color (app icon)
 The choice takes effect immediately and is saved for the next launch. Automatic
 uses the icon theme, with the application's colors as a fallback. A manual choice
 is useful when the panel and application use different color schemes.
+
+## Hardware and CI status (2026-10-29)
+
+The maintainer has installed and used this project on **two Arch-based systems**:
+
+| System | Initial real-hardware results |
+| --- | --- |
+| Desktop PC (CachyOS/KDE Plasma) | Installed and working for music playback. Device-effects controls are available; previously intermittent audio glitches and hissing have not been observed in recent listening. |
+| Dell Latitude 7490 | Successfully cloned and installed. Playback and the interface are working in initial use; no audio glitches have been noticed so far. |
+
+These are **maintainer-reported observations**, not exhaustive compatibility
+certification or a guarantee of glitch-free playback. Longer-duration testing,
+different Bluetooth/wired routes, application switching and other hardware
+configurations still matter.
+
+The [post-merge GitHub Actions run](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/40945452708)
+passed **all three checks** on `main`:
+
+- `layout-smoke`: Quickly checks the patched Devices/Tray layouts and EQ
+  readability without compiling the complete DSP application.
+- `package (standard)`: Builds and checks the standard source package.
+- `package (rt)`: Builds and checks the optional PREEMPT_RT source package.
+
+The smoke check runs before the two full source builds, preventing expensive
+compilation when those UI regression tests fail. **Passing CI does not prove
+every runtime behavior is correct.** The source-built CI packages are also
+**distinct from the Ubuntu-built, checksum-verified prebuilt engines** selected
+by the normal `./install.sh` workflow.
 
 ## Install
 
@@ -189,8 +219,10 @@ restoration, and reused node IDs. They supplement real PipeWire/hardware tests.
 The binary package's `check()` verifies the selected engine, probes its loader
 with `--help`, and runs the portable checks. These supplied engines were built
 on Ubuntu 24.04 with GCC 13.3.0, Qt 6.4.2 and PipeWire 1.0.5; they use native
-shared libraries and require glibc 2.38 or later. Actual Arch/CachyOS playback
-still needs testing. See [VALIDATION.md](VALIDATION.md) for measured results.
+shared libraries and require glibc 2.38 or later. Initial Arch-based hardware
+playback has now been reported working on the desktop and Dell above; broader
+compatibility and long-term stability remain unverified. See
+[VALIDATION.md](VALIDATION.md) for build-environment test details.
 
 Maintainers can explicitly build the source recipe instead:
 
@@ -201,11 +233,15 @@ Maintainers can explicitly build the source recipe instead:
 
 The source path is separate from the normal installer. It forces Git transfer
 progress and records compilation output in a log with 30-second elapsed-time
-updates. The Arch CI matrix also uses `packaging/PKGBUILD.source`; it is configured
-for standard and RT profiles but has not run for this bundle.
+updates. Arch CI uses `packaging/PKGBUILD.source` and now runs the fast Qt/EQ
+smoke gate followed by complete standard and RT source package checks; all three
+passed on `main` on 2026-10-29. This does not mean the normal installer uses
+those source-build artifacts.
 
 See [docs/testing.md](docs/testing.md) for the hardware checklist and Brave's audio
-replay investigation. No fix for that browser replay is claimed in this release.
+replay investigation. The maintainer reports no recurrence of earlier audio
+glitches in recent use, but the specific Brave replay issue has not been
+systematically confirmed fixed across setups.
 
 ## Credits and license
 
