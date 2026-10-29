@@ -1,1 +1,100 @@
-packaging/PKGBUILD.source
+# Maintainer: Sebastian George
+pkgname=jamesdsp-native-arch
+pkgver=0.2.2.r20261001.g3ea7d73
+pkgrel=1
+pkgdesc='JamesDSP with per-device effects rules and optional PREEMPT_RT patches (PipeWire only)'
+arch=('x86_64')
+url='https://github.com/Audio4Linux/JDSP4Linux'
+license=('GPL-3.0-or-later')
+provides=('jamesdsp')
+conflicts=('jamesdsp' 'jamesdsp-git' 'jdsp4linux' 'jdsp4linux-gui' 'gst-plugin-jamesdsp')
+depends=('glibmm' 'hicolor-icon-theme' 'libarchive' 'libpipewire' 'libxcb' 'qt6-base' 'qt6-svg' 'python' 'pipewire')
+makedepends=('git' 'pkgconf' 'qt6-tools' 'desktop-file-utils')
+optdepends=('pipewire-pulse: compatibility for applications using the PulseAudio API')
+
+_commit=3ea7d733c090409c00887db3bb3aaf3af79ea692
+_eq_commit=ba63ad32682b20e2d4fde4c8a4aafe4da3423cc5
+_tabs_commit=06509713d85dc336c4a3b089ef9d265003aaf48e
+_liquid_commit=013055c360c66a08325208065211ffba1f5bc192
+_eel_commit=b2f392480e00ca232c397610f42688b165b87640
+source=(
+  "upstream::git+https://github.com/Audio4Linux/JDSP4Linux.git#commit=${_commit}"
+  "GraphicEQWidget::git+https://github.com/ThePBone/GraphicEQWidget.git#commit=${_eq_commit}"
+  "FlatTabWidget::git+https://github.com/ThePBone/FlatTabWidget.git#commit=${_tabs_commit}"
+  "LiquidEqualizerWidget::git+https://github.com/ThePBone/LiquidEqualizerWidget.git#commit=${_liquid_commit}"
+  "LiveprogIDE::git+https://github.com/ThePBone/LiveprogIDE.git#commit=${_eel_commit}"
+  '0001-device-effects-policy.patch'
+  '0002-optional-rt-scratch.patch'
+  '0003-responsive-interface.patch'
+  '0004-tray-icon-appearance.patch'
+  'kernel_info.py'
+  'diagnostics.py'
+)
+# Git inputs are pinned by full commit IDs; local patch/helper checksums are generated below.
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
+            '804c519bedf92849e06efac51916325743dbf5c7ed73911db5c4898f4ec2e26f'
+            '43a0eb0c1a366911d3f941566176763bbb18b88278f55a4f30867da8588b84b1'
+            '0454b86dad4f90f311055cfcc13506b0139e52c6d3d6d01820ad1b1bcbf78f37'
+            'c4b261966597b9e27e64b0adab982e78a0f0ab091967730083e168914b65c680'
+            'd97ece470d1f1513d5e456b812aab70e2ed31e7cb3b7334802eda3ea48609112'
+            '8241f0596f75daa9a0def50fe1a539d0c8213def547b5647aa77d926bdfc6cf6')
+
+prepare() {
+  cd "${srcdir}/upstream"
+  git submodule init
+  git config submodule.src/subprojects/GraphicEQWidget.url "${srcdir}/GraphicEQWidget"
+  git config submodule.src/subprojects/FlatTabWidget.url "${srcdir}/FlatTabWidget"
+  git config submodule.src/subprojects/LiquidEqualizerWidget.url "${srcdir}/LiquidEqualizerWidget"
+  git config submodule.src/subprojects/EELEditor.url "${srcdir}/LiveprogIDE"
+  git -c protocol.file.allow=always submodule update --init --recursive
+  git apply --check "${srcdir}/0001-device-effects-policy.patch"
+  git apply "${srcdir}/0001-device-effects-policy.patch"
+  git apply --check "${srcdir}/0003-responsive-interface.patch"
+  git apply "${srcdir}/0003-responsive-interface.patch"
+  git apply --check "${srcdir}/0004-tray-icon-appearance.patch"
+  git apply "${srcdir}/0004-tray-icon-appearance.patch"
+  local profile=${JDSP_NATIVE_PROFILE:-}
+  [[ -n ${profile} ]] || profile=$(python "${srcdir}/kernel_info.py" --profile)
+  case ${profile} in
+    rt)
+      git apply --check "${srcdir}/0002-optional-rt-scratch.patch"
+      git apply "${srcdir}/0002-optional-rt-scratch.patch"
+      ;;
+    standard) ;;
+    *) printf 'Invalid patch profile: %s\n' "${profile}" >&2; return 1 ;;
+  esac
+  printf '%s\n' "${profile}" > .native-profile
+  printf 'JamesDSP build profile: %s\n' "${profile}"
+}
+
+build() {
+  cd "${srcdir}/upstream"
+  mkdir -p build
+  cd build
+  qmake6 ../JDSP4Linux.pro CONFIG-=USE_PULSEAUDIO \
+    QMAKE_CFLAGS="${CFLAGS}" QMAKE_CXXFLAGS="${CXXFLAGS}" QMAKE_LFLAGS="${LDFLAGS}"
+  make
+}
+
+check() {
+  cd "${srcdir}/upstream"
+  bash "${startdir}/test.sh" "${PWD}"
+  desktop-file-validate meta/flatpak/me.timschneeberger.jdsp4linux.desktop
+}
+
+package() {
+  cd "${srcdir}/upstream"
+  install -Dm755 build/src/jamesdsp "${pkgdir}/usr/bin/jamesdsp"
+  install -Dm644 resources/icons/icon.svg "${pkgdir}/usr/share/icons/hicolor/scalable/apps/me.timschneeberger.jdsp4linux.svg"
+  install -Dm644 resources/icons/icon.png "${pkgdir}/usr/share/pixmaps/me.timschneeberger.jdsp4linux.png"
+  install -Dm644 meta/flatpak/me.timschneeberger.jdsp4linux.desktop "${pkgdir}/usr/share/applications/me.timschneeberger.jdsp4linux.desktop"
+  install -Dm644 meta/flatpak/me.timschneeberger.jdsp4linux.metainfo.xml "${pkgdir}/usr/share/metainfo/me.timschneeberger.jdsp4linux.metainfo.xml"
+  install -Dm755 "${srcdir}/diagnostics.py" "${pkgdir}/usr/bin/jamesdsp-native-diagnostics"
+  install -Dm644 "${srcdir}/kernel_info.py" "${pkgdir}/usr/lib/jamesdsp-native-arch/kernel_info.py"
+  install -Dm644 LICENSE "${pkgdir}/usr/share/licenses/${pkgname}/LICENSE"
+  local rt=false
+  [[ $(<.native-profile) != rt ]] || rt=true
+  install -dm755 "${pkgdir}/usr/share/${pkgname}"
+  printf '{"rt_patches":%s,"upstream_commit":"%s"}\n' "${rt}" "${_commit}" \
+    > "${pkgdir}/usr/share/${pkgname}/build-profile.json"
+}

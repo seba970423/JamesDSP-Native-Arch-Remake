@@ -66,6 +66,18 @@ int main(int argc, char** argv) {
             form.resize(size);
             form.show();
             for (int i = 0; i < 3; ++i) app.processEvents();
+            if (scroll->horizontalScrollBar()->maximum() != 0) {
+                std::cerr << "Devices page horizontal overflow: font=" << points << "pt"
+                          << ", requested=" << size.width() << "x" << size.height()
+                          << ", actual=" << form.width() << "x" << form.height()
+                          << ", viewport=" << scroll->viewport()->width()
+                          << ", content=" << scroll->widget()->width()
+                          << ", content minimum=" << scroll->widget()->minimumWidth()
+                          << ", device controls minimum=" << widget->minimumWidth()
+                          << ", blocklist minimum=" << ui.blocklistBox->minimumWidth()
+                          << ", scrollbar maximum=" << scroll->horizontalScrollBar()->maximum()
+                          << std::endl;
+            }
             assert(scroll->horizontalScrollBar()->maximum() == 0);
             for (int i = 0; i < widget->layout()->count(); ++i) {
                 auto* control = widget->layout()->itemAt(i)->widget();
