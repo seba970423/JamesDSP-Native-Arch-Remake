@@ -132,6 +132,15 @@ diff --git a/src/subprojects/FlatTabWidget/FlatTabWidget/flattabwidget.cpp b/src
 index 598475a..9bd3a3b 100755
 --- a/src/subprojects/FlatTabWidget/FlatTabWidget/flattabwidget.cpp
 +++ b/src/subprojects/FlatTabWidget/FlatTabWidget/flattabwidget.cpp
+@@ -56,7 +56,7 @@ FlatTabWidget::FlatTabWidget(QWidget *parent)
+ FlatTabWidget::~FlatTabWidget()
+ {
+     lineMorph->deleteLater();
+-    fade->deleteLater();
++    if (fade) fade->deleteLater();
+     for(const auto& item : std::as_const(pages))
+     {
+         item.fadeIn->deleteLater();
 @@ -236,8 +236,8 @@ QStackedWidget* FlatTabWidget::getActiveStackedWidget(){
  QColor FlatTabWidget::getColor(FlatTabWidget::ColorRole role) const
  {
