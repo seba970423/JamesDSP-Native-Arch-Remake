@@ -67,6 +67,26 @@ int main(int argc, char** argv) {
             form.show();
             for (int i = 0; i < 3; ++i) app.processEvents();
             if (scroll->horizontalScrollBar()->maximum() != 0) {
+                const auto printWidget = [&](const char* name, QWidget* child) {
+                    const auto hint = child->sizeHint();
+                    const auto minimum = child->minimumSizeHint();
+                    const auto layoutMinimum = child->layout() ? child->layout()->minimumSize().width() : -1;
+                    std::cerr << "  " << name << ": width=" << child->width()
+                              << " minWidth=" << child->minimumWidth()
+                              << " minHint=" << minimum.width()
+                              << " sizeHint=" << hint.width()
+                              << " layoutMin=" << layoutMinimum
+                              << " visible=" << child->isVisible() << std::endl;
+                };
+                printWidget("scroll content", scroll->widget());
+                printWidget("NativeDeviceWidget", widget);
+                printWidget("device rules table", table);
+                printWidget("blocklist group", ui.blocklistBox);
+                printWidget("blocklist description", ui.label_4);
+                printWidget("allowlist checkbox", ui.blocklistInvert);
+                printWidget("clear list button", ui.blocklistClear);
+                printWidget("new devices checkbox", widget->findChild<QCheckBox*>("nativeNewDeviceEffects"));
+                printWidget("refresh button", widget->findChild<QPushButton*>("nativeDeviceRefresh"));
                 std::cerr << "Devices page horizontal overflow: font=" << points << "pt"
                           << ", requested=" << size.width() << "x" << size.height()
                           << ", actual=" << form.width() << "x" << form.height()
@@ -115,6 +135,27 @@ int main(int argc, char** argv) {
         for (const auto size : {QSize(685, 365), QSize(700, 450), QSize(1000, 650)}) {
             form.resize(size);
             for (int i = 0; i < 3; ++i) app.processEvents();
+            if (ui.traySettingsScroll->horizontalScrollBar()->maximum() != 0) {
+                std::cerr << "Tray horizontal overflow: font=" << points << "pt"
+                          << ", requested=" << size.width() << "x" << size.height()
+                          << ", viewport=" << ui.traySettingsScroll->viewport()->width()
+                          << ", content=" << ui.traySettingsContents->width()
+                          << ", maximum=" << ui.traySettingsScroll->horizontalScrollBar()->maximum()
+                          << std::endl;
+                const auto dump = [](const char* name, QWidget* child) {
+                    std::cerr << "  " << name << ": width=" << child->width()
+                              << " minHint=" << child->minimumSizeHint().width()
+                              << " sizeHint=" << child->sizeHint().width() << std::endl;
+                };
+                dump("tray content", ui.traySettingsContents);
+                dump("tray group", ui.systray_box);
+                dump("exit radio", ui.systray_r_none);
+                dump("tray radio", ui.systray_r_showtray);
+                dump("autostart checkbox", ui.systray_minOnBoot);
+                dump("appearance group", ui.trayAppearanceBox);
+                dump("appearance combo", ui.trayIconAppearance);
+                dump("appearance help", ui.trayAppearanceHelp);
+            }
             assert(ui.traySettingsScroll->horizontalScrollBar()->maximum() == 0);
             assert(ui.traySettingsContents->rect().contains(ui.trayAppearanceBox->geometry()));
             assert(!ui.trayAppearanceBox->geometry().intersects(ui.systray_box->geometry()));
