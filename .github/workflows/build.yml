@@ -1,0 +1,31 @@
+name: Native PipeWire package
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    strategy:
+      fail-fast: false
+      matrix:
+        profile: [standard, rt]
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Prepare Arch build environment
+        run: |
+          pacman -Syu --noconfirm --needed git python sudo
+          useradd -m builder
+          printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+      - name: Build and check package
+        env:
+          JDSP_NATIVE_PROFILE: ${{ matrix.profile }}
+        run: sudo -u builder --preserve-env=JDSP_NATIVE_PROFILE makepkg -p packaging/PKGBUILD.source --syncdeps --noconfirm --cleanbuild
+      - uses: actions/upload-artifact@v7.0.2
+        with:
+          name: jamesdsp-native-arch-${{ matrix.profile }}
+          path: '*.pkg.tar.zst'

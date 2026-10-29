@@ -1,0 +1,11 @@
+src/
+pkg/
+upstream/
+GraphicEQWidget/
+FlatTabWidget/
+LiquidEqualizerWidget/
+LiveprogIDE/
+*.pkg.tar.*
+*.log
+*.deb
+__pycache__/

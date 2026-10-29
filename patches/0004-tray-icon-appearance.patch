@@ -1,0 +1,325 @@
+diff --git a/src/config/AppConfig.cpp b/src/config/AppConfig.cpp
+--- a/src/config/AppConfig.cpp
++++ b/src/config/AppConfig.cpp
+@@ -26,6 +26,7 @@
+ 
+     DEFINE_KEY(TrayIconEnabled, true);
+     DEFINE_KEY(TrayIconMenu, "");
++    DEFINE_KEY(TrayIconAppearance, "auto");
+ 
+     DEFINE_KEY(EqualizerShowHandles, false);
+ 
+diff --git a/src/config/AppConfig.h b/src/config/AppConfig.h
+--- a/src/config/AppConfig.h
++++ b/src/config/AppConfig.h
+@@ -52,6 +52,7 @@
+ 
+         TrayIconEnabled,
+         TrayIconMenu,
++        TrayIconAppearance,
+ 
+         EqualizerShowHandles,
+ 
+diff --git a/src/interface/TrayIcon.cpp b/src/interface/TrayIcon.cpp
+--- a/src/interface/TrayIcon.cpp
++++ b/src/interface/TrayIcon.cpp
+@@ -85,6 +85,12 @@
+ {
+ 	createTrayIcon();
+ 
++    connect(&AppConfig::instance(), &AppConfig::updated, this,
++            [this](AppConfig::Key key, const QVariant&) {
++        if (key == AppConfig::TrayIconAppearance)
++            updateTheme();
++    });
++
+     tray_disableAction = new QAction(tr("&Bypass"), this);
+     tray_disableAction->setProperty("tag", "passthrough");
+ 	tray_disableAction->setCheckable(true);
+@@ -120,27 +126,21 @@
+ 
+ void TrayIcon::updateTheme()
+ {
+-    // Best effort theme detection
+-    bool isDark = true;
+-    QString gtkTheme = QString::fromLocal8Bit(qgetenv("GTK_THEME"));
+-    Log::error(gtkTheme);
+-    if (gtkTheme.contains("light"))
+-        isDark = false;
+-    else if (gtkTheme.contains("dark"))
+-        isDark = true;
++    const auto appearance = AppConfig::instance().get<QString>(AppConfig::TrayIconAppearance);
++    // Explicit choices must bypass the icon theme, which may supply the same
++    // dark icon on both light and dark panels.
++    if (appearance == "light")
++        trayIcon->setIcon(QIcon(":/icons/jamesdsp-tray.svg"));
++    else if (appearance == "dark")
++        trayIcon->setIcon(QIcon(":/icons/jamesdsp-tray-light.svg"));
++    else if (appearance == "color")
++        trayIcon->setIcon(QIcon(":/icons/icon.svg"));
+     else {
+-        // Try to derive from current app palette otherwise
+-        QPalette pal = QApplication::palette();
+-        isDark = pal.color(QPalette::Window).lightness() < 128;
+-    }
+-
+-    if (isDark)
+-    {
+-        trayIcon->setIcon(QIcon::fromTheme("jamesdsp-tray", QIcon(":/icons/jamesdsp-tray.svg")));
+-    }
+-    else
+-    {
+-        trayIcon->setIcon(QIcon::fromTheme("jamesdsp-tray", QIcon(":/icons/jamesdsp-tray-light.svg")));
++        // The panel can use different colors from the app. Prefer its icon
++        // theme, and use the app palette only when no themed icon exists.
++        const bool dark = QApplication::palette().color(QPalette::Window).lightness() < 128;
++        const QIcon fallback(dark ? ":/icons/jamesdsp-tray.svg" : ":/icons/jamesdsp-tray-light.svg");
++        trayIcon->setIcon(QIcon::fromTheme("jamesdsp-tray", fallback));
+     }
+ }
+ 
+diff --git a/src/interface/fragment/SettingsFragment.cpp b/src/interface/fragment/SettingsFragment.cpp
+--- a/src/interface/fragment/SettingsFragment.cpp
++++ b/src/interface/fragment/SettingsFragment.cpp
+@@ -22,6 +22,7 @@
+ #include <QGraphicsOpacityEffect>
+ #include <QMessageBox>
+ #include <QProcess>
++#include <QSignalBlocker>
+ #include <QStyleFactory>
+ #include <QSystemTrayIcon>
+ #include <QTimer>
+@@ -91,12 +92,21 @@
+ 		ui->themeSelect->addItem(i);
+ 	}
+ 
++    ui->trayIconAppearance->addItem(tr("Automatic"), "auto");
++    ui->trayIconAppearance->addItem(tr("Light (for dark panels)"), "light");
++    ui->trayIconAppearance->addItem(tr("Dark (for light panels)"), "dark");
++    ui->trayIconAppearance->addItem(tr("Color (app icon)"), "color");
++
+     /*
+      * Session signals
+ 	 */
+     connect(ui->systray_r_none, &QRadioButton::clicked, this, &SettingsFragment::onSystrayToggled);
+     connect(ui->systray_r_showtray, &QRadioButton::clicked, this, &SettingsFragment::onSystrayToggled);
+     connect(ui->systray_minOnBoot, &QPushButton::clicked, this, &SettingsFragment::onAutoStartToggled);
++    connect(ui->trayIconAppearance, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] {
++        if (!_lockslot)
++            AppConfig::instance().set(AppConfig::TrayIconAppearance, ui->trayIconAppearance->currentData());
++    });
+     connect(ui->menu_edit, &QMenuEditor::targetChanged, this, &SettingsFragment::onTrayEditorCommitted);
+     connect(ui->menu_edit, &QMenuEditor::resetPressed, this, &SettingsFragment::onTrayEditorReset);
+     ui->menu_edit->setSourceMenu(trayIcon->buildAvailableActions());
+@@ -182,6 +192,13 @@
+     {
+         case AppConfig::AutoStartEnabled:
+             ui->systray_minOnBoot->setChecked(value.toBool());
++            break;
++        case AppConfig::TrayIconAppearance: {
++            const QSignalBlocker blocker(ui->trayIconAppearance);
++            const int index = ui->trayIconAppearance->findData(value.toString());
++            ui->trayIconAppearance->setCurrentIndex(index < 0 ? 0 : index);
++            break;
++        }
+         default:
+             break;
+         }
+@@ -278,6 +295,9 @@
+     ui->menu_edit->setEnabled(AppConfig::instance().get<bool>(AppConfig::TrayIconEnabled));
+ 
+     ui->systray_minOnBoot->setChecked(AppConfig::instance().get<bool>(AppConfig::AutoStartEnabled));
++    const int trayAppearance = ui->trayIconAppearance->findData(
++        AppConfig::instance().get<QString>(AppConfig::TrayIconAppearance));
++    ui->trayIconAppearance->setCurrentIndex(trayAppearance < 0 ? 0 : trayAppearance);
+ 
+     ui->eq_alwaysdrawhandles->setChecked(AppConfig::instance().get<bool>(AppConfig::EqualizerShowHandles));
+ 
+diff --git a/src/interface/fragment/SettingsFragment.ui b/src/interface/fragment/SettingsFragment.ui
+--- a/src/interface/fragment/SettingsFragment.ui
++++ b/src/interface/fragment/SettingsFragment.ui
+@@ -810,74 +810,117 @@
+         <property name="autoFillBackground">
+          <bool>true</bool>
+         </property>
+-        <layout class="QVBoxLayout" name="verticalLayout_6">
+-         <item>
+-          <widget class="QGroupBox" name="systray_box">
+-           <property name="title">
+-            <string>Run in background (tray icon)</string>
+-           </property>
+-           <layout class="QVBoxLayout" name="verticalLayout_7">
+-            <item>
+-             <widget class="QRadioButton" name="systray_r_none">
+-              <property name="text">
+-               <string>No, shutdown audio effects when closing app</string>
+-              </property>
+-             </widget>
+-            </item>
+-            <item>
+-             <widget class="QRadioButton" name="systray_r_showtray">
+-              <property name="text">
+-               <string>Yes, minimize to tray icon when closing app</string>
+-              </property>
+-             </widget>
+-            </item>
+-            <item>
+-             <widget class="QGroupBox" name="systray_icon_box">
+-              <property name="title">
+-               <string>Auto-start</string>
+-              </property>
+-              <layout class="QVBoxLayout" name="verticalLayout_8">
+-               <item>
+-                <widget class="QCheckBox" name="systray_minOnBoot">
+-                 <property name="text">
+-                  <string>Start minimized on boot</string>
+-                 </property>
+-                </widget>
+-               </item>
+-              </layout>
+-             </widget>
+-            </item>
+-           </layout>
++        <layout class="QVBoxLayout" name="trayPageLayout">
++         <property name="leftMargin"><number>0</number></property>
++         <property name="topMargin"><number>0</number></property>
++         <property name="rightMargin"><number>0</number></property>
++         <property name="bottomMargin"><number>0</number></property>
++         <item>
++          <widget class="QScrollArea" name="traySettingsScroll">
++           <property name="frameShape"><enum>QFrame::NoFrame</enum></property>
++           <property name="horizontalScrollBarPolicy"><enum>Qt::ScrollBarAlwaysOff</enum></property>
++           <property name="widgetResizable"><bool>true</bool></property>
++           <widget class="QWidget" name="traySettingsContents">
++            <layout class="QVBoxLayout" name="verticalLayout_6">
++             <item>
++              <widget class="QGroupBox" name="systray_box">
++               <property name="title">
++                <string>Run in background (tray icon)</string>
++               </property>
++               <layout class="QVBoxLayout" name="verticalLayout_7">
++                <item>
++                 <widget class="QRadioButton" name="systray_r_none">
++                  <property name="text">
++                   <string>Exit when closing the app</string>
++                  </property>
++                 </widget>
++                </item>
++                <item>
++                 <widget class="QRadioButton" name="systray_r_showtray">
++                  <property name="text">
++                   <string>Keep running in the system tray</string>
++                  </property>
++                 </widget>
++                </item>
++                <item>
++                 <widget class="QGroupBox" name="systray_icon_box">
++                  <property name="title">
++                   <string>Auto-start</string>
++                  </property>
++                  <layout class="QVBoxLayout" name="verticalLayout_8">
++                   <item>
++                    <widget class="QCheckBox" name="systray_minOnBoot">
++                     <property name="text">
++                      <string>Start minimized on boot</string>
++                     </property>
++                    </widget>
++                   </item>
++                  </layout>
++                 </widget>
++                </item>
++               </layout>
++              </widget>
++             </item>
++             <item>
++              <widget class="QGroupBox" name="trayAppearanceBox">
++               <property name="title">
++                <string>Icon appearance</string>
++               </property>
++               <layout class="QVBoxLayout" name="trayAppearanceLayout">
++                <item>
++                 <widget class="QComboBox" name="trayIconAppearance"/>
++                </item>
++                <item>
++                 <widget class="QLabel" name="trayAppearanceHelp">
++                  <property name="sizePolicy">
++                   <sizepolicy hsizetype="Preferred" vsizetype="Minimum">
++                    <horstretch>0</horstretch>
++                    <verstretch>0</verstretch>
++                   </sizepolicy>
++                  </property>
++                  <property name="text">
++                   <string>Automatic follows the icon theme. Choose Light or Dark if your panel uses different colors.</string>
++                  </property>
++                  <property name="wordWrap">
++                   <bool>true</bool>
++                  </property>
++                 </widget>
++                </item>
++               </layout>
++              </widget>
++             </item>
++             <item>
++              <widget class="QLabel" name="systray_unsupported">
++               <property name="font">
++                <font>
++                 <pointsize>10</pointsize>
++                 <bold>true</bold>
++                </font>
++               </property>
++               <property name="styleSheet">
++                <string notr="true">color:rgb(200, 50, 0)</string>
++               </property>
++               <property name="text">
++                <string>Systray not supported on this system</string>
++               </property>
++              </widget>
++             </item>
++             <item>
++              <spacer name="verticalSpacer_4">
++               <property name="orientation">
++                <enum>Qt::Vertical</enum>
++               </property>
++               <property name="sizeHint" stdset="0">
++                <size>
++                 <width>20</width>
++                 <height>40</height>
++                </size>
++               </property>
++              </spacer>
++             </item>
++            </layout>
++           </widget>
+           </widget>
+-         </item>
+-         <item>
+-          <widget class="QLabel" name="systray_unsupported">
+-           <property name="font">
+-            <font>
+-             <pointsize>10</pointsize>
+-             <bold>true</bold>
+-            </font>
+-           </property>
+-           <property name="styleSheet">
+-            <string notr="true">color:rgb(200, 50, 0)</string>
+-           </property>
+-           <property name="text">
+-            <string>Systray not supported on this system</string>
+-           </property>
+-          </widget>
+-         </item>
+-         <item>
+-          <spacer name="verticalSpacer_4">
+-           <property name="orientation">
+-            <enum>Qt::Vertical</enum>
+-           </property>
+-           <property name="sizeHint" stdset="0">
+-            <size>
+-             <width>20</width>
+-             <height>40</height>
+-            </size>
+-           </property>
+-          </spacer>
+          </item>
+         </layout>
+        </widget>

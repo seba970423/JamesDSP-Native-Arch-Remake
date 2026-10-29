@@ -1,0 +1,40 @@
+diff --git a/src/audio/pipewire/PwBasePlugin.cpp b/src/audio/pipewire/PwBasePlugin.cpp
+index d776dc7..d7eec21 100644
+--- a/src/audio/pipewire/PwBasePlugin.cpp
++++ b/src/audio/pipewire/PwBasePlugin.cpp
+@@ -39,11 +39,14 @@ void on_process(void* userdata, spa_io_position* position) {
+         d->pb->rate = rate;
+         d->pb->n_samples = n_samples;
+ 
+-        d->pb->dummy_left.resize(n_samples);
+-        d->pb->dummy_right.resize(n_samples);
+-
+-        std::ranges::fill(d->pb->dummy_left, 0.0F);
+-        std::ranges::fill(d->pb->dummy_right, 0.0F);
++        // JamesDSP does not use probe ports. Avoid allocating unused scratch
++        // storage on its audio thread. Probe-enabled users reuse prewarmed capacity.
++        if (d->pb->enable_probe) {
++            d->pb->dummy_left.resize(n_samples);
++            d->pb->dummy_right.resize(n_samples);
++            std::ranges::fill(d->pb->dummy_left, 0.0F);
++            std::ranges::fill(d->pb->dummy_right, 0.0F);
++        }
+ 
+         d->pb->clock_start = std::chrono::system_clock::now();
+ 
+@@ -136,6 +139,15 @@ PwPluginBase::PwPluginBase(std::string tag,
+       pm(pipe_manager) {
+     pf_data.pb = this;
+ 
++    // Optional PREEMPT_RT build patch. Touch ordinary probe quanta outside the
++    // callback; oversized quanta retain the upstream growth behavior.
++    if (enable_probe) {
++        dummy_left.resize(65536, 0.0F);
++        dummy_right.resize(65536, 0.0F);
++        dummy_left.clear();
++        dummy_right.clear();
++    }
++
+     const auto& filter_name = "jdsp_" + log_tag.substr(0, log_tag.size() - 2) + "_" + name;
+ 
+     pm->lock();

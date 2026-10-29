@@ -1,0 +1,12 @@
+JamesDSP Native Arch Remake 0.2.2
+
+This binary distribution includes the complete corresponding engine sources at:
+  prebuilt/corresponding-source-v0.2.2.tar.xz
+SHA-256: 940e6bf7cf4541f11bc732e3ef16799676c6bd7898999c3405f6ff947a071d62
+
+Project: https://github.com/seba970423/JamesDSP-Native-Arch-Remake
+Upstream: https://github.com/Audio4Linux/JDSP4Linux
+Upstream commit: 3ea7d733c090409c00887db3bb3aaf3af79ea692
+License: GPL-3.0-or-later. Original copyright and third-party notices are retained.
+Device, interface and tray patches are applied in the source archive. The optional RT patch
+is included under native-build/. The normal installer does not compile sources.

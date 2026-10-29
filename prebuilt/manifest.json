@@ -1,0 +1,26 @@
+{
+  "version": "0.2.2",
+  "architecture": "x86_64",
+  "upstream_commit": "3ea7d733c090409c00887db3bb3aaf3af79ea692",
+  "build_environment": {
+    "distribution": "Ubuntu 24.04",
+    "compiler": "GCC 13.3.0",
+    "qt": "6.4.2",
+    "pipewire": "1.0.5",
+    "minimum_glibc": "2.38"
+  },
+  "profiles": {
+    "standard": {
+      "sha256": "1bb2ac5f2c2f0e531a1572322bdcfe0b5c4a9d3ad1ba77657681f3cb098c27d1"
+    },
+    "rt": {
+      "sha256": "1cf8116c7096d69826c39f1b82a746c6c63f50cb08445d3396eaa071682b8150"
+    }
+  },
+  "patches": {
+    "0001-device-effects-policy.patch": "804c519bedf92849e06efac51916325743dbf5c7ed73911db5c4898f4ec2e26f",
+    "0002-optional-rt-scratch.patch": "43a0eb0c1a366911d3f941566176763bbb18b88278f55a4f30867da8588b84b1",
+    "0003-responsive-interface.patch": "08c4ee760fe8af81e5c3abeb08b42f22177274a26a3c3f5c223a898d614cef85",
+    "0004-tray-icon-appearance.patch": "c4b261966597b9e27e64b0adab982e78a0f0ab091967730083e168914b65c680"
+  }
+}

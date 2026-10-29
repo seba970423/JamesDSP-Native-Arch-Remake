@@ -1,0 +1,1149 @@
+diff --git a/src/audio/base/IOutputDevice.h b/src/audio/base/IOutputDevice.h
+index 3ecffcd..cf8b38f 100644
+--- a/src/audio/base/IOutputDevice.h
++++ b/src/audio/base/IOutputDevice.h
+@@ -52,6 +52,7 @@ public:
+         : name(name), description(description), output_route_name(output_route_name), output_route_description(output_route_description){}
+ 
+     uint32_t id = ((uint32_t)0xffffffff);
++    uint32_t device_id = ((uint32_t)0xffffffff);
+ 
+     std::string name;
+ 
+diff --git a/src/audio/pipewire/DevicePolicy.cpp b/src/audio/pipewire/DevicePolicy.cpp
+new file mode 100644
+index 0000000..3685490
+--- /dev/null
++++ b/src/audio/pipewire/DevicePolicy.cpp
+@@ -0,0 +1,77 @@
++#include "DevicePolicy.h"
++#include <QDir>
++#include <QFile>
++#include <QFileInfo>
++#include <QJsonDocument>
++#include <QSaveFile>
++
++DevicePolicy::DevicePolicy(QString path) : path(std::move(path)) {
++    QFile file(this->path);
++    if (!file.exists()) return;
++    if (!file.open(QIODevice::ReadOnly)) { lastError = file.errorString(); return; }
++    QJsonParseError parse;
++    auto doc = QJsonDocument::fromJson(file.readAll(), &parse);
++    if (parse.error != QJsonParseError::NoError || !doc.isObject() ||
++        doc.object().value("version").toInt() != 1 || !doc.object().value("rules").isArray()) {
++        lastError = "Invalid device_rules.json; effects remain disabled until the file is repaired.";
++        return;
++    }
++    for (const auto& item : doc.object().value("rules").toArray()) {
++        auto rule = item.toObject();
++        if (!item.isObject() || !rule.value("device").isString() ||
++            rule.value("device").toString().isEmpty() || !rule.value("route").isString() ||
++            !rule.value("enabled").isBool()) {
++            entries = {}; lastError = "Invalid device rule; effects remain disabled."; return;
++        }
++        entries.append(rule);
++    }
++    processNewDevices = doc.object().value("defaultEnabled").toBool(false);
++}
++
++bool DevicePolicy::enabled(const QString& device, const QString& route) const {
++    if (!lastError.isEmpty()) return false;
++    for (const auto& item : entries) {
++        auto rule = item.toObject();
++        if (rule.value("device").toString() == device && rule.value("route").toString() == route)
++            return rule.value("enabled").toBool();
++    }
++    for (const auto& item : entries) {
++        auto rule = item.toObject();
++        if (rule.value("device").toString() == device && rule.value("route").toString() == "*")
++            return rule.value("enabled").toBool();
++    }
++    return processNewDevices;
++}
++
++bool DevicePolicy::save() {
++    if (!lastError.isEmpty()) return false; // Never silently replace a malformed file.
++    QDir().mkpath(QFileInfo(path).absolutePath());
++    QSaveFile file(path);
++    if (!file.open(QIODevice::WriteOnly)) return false;
++    auto data = QJsonDocument(QJsonObject{{"version", 1}, {"defaultEnabled", processNewDevices},
++                                        {"rules", entries}}).toJson();
++    if (file.write(data) != data.size()) { file.cancelWriting(); return false; }
++    return file.commit();
++}
++
++bool DevicePolicy::setEnabled(const QString& device, const QString& route, const QString& label, bool value) {
++    if (device.isEmpty() || route.isEmpty() || !lastError.isEmpty()) return false;
++    auto previous = entries;
++    for (qsizetype i = entries.size(); i > 0; --i) {
++        auto rule = entries.at(i - 1).toObject();
++        if (rule.value("device").toString() == device && rule.value("route").toString() == route)
++            entries.removeAt(i - 1);
++    }
++    entries.append(QJsonObject{{"device", device}, {"route", route}, {"label", label}, {"enabled", value}});
++    if (save()) return true;
++    entries = previous;
++    return false;
++}
++
++bool DevicePolicy::setDefaultEnabled(bool value) {
++    bool previous = processNewDevices;
++    processNewDevices = value;
++    if (save()) return true;
++    processNewDevices = previous;
++    return false;
++}
+diff --git a/src/audio/pipewire/DevicePolicy.h b/src/audio/pipewire/DevicePolicy.h
+new file mode 100644
+index 0000000..746b5b2
+--- /dev/null
++++ b/src/audio/pipewire/DevicePolicy.h
+@@ -0,0 +1,23 @@
++#pragma once
++
++#include <QJsonArray>
++#include <QJsonObject>
++#include <QString>
++
++// Stable device names and route names, never transient PipeWire numeric IDs.
++class DevicePolicy {
++public:
++    explicit DevicePolicy(QString path);
++    bool enabled(const QString& device, const QString& route) const;
++    bool setEnabled(const QString& device, const QString& route, const QString& label, bool enabled);
++    QJsonArray rules() const { return entries; }
++    QString error() const { return lastError; }
++    bool defaultEnabled() const { return processNewDevices; }
++    bool setDefaultEnabled(bool enabled);
++private:
++    bool save();
++    QString path;
++    QString lastError;
++    QJsonArray entries;
++    bool processNewDevices = false;
++};
+diff --git a/src/audio/pipewire/FilterContainer.cpp b/src/audio/pipewire/FilterContainer.cpp
+index b0236e0..dd2bf35 100644
+--- a/src/audio/pipewire/FilterContainer.cpp
++++ b/src/audio/pipewire/FilterContainer.cpp
+@@ -25,291 +25,178 @@
+  */
+ 
+ #include "FilterContainer.h"
+-
+-#include <thread>
+-#include <config/AppConfig.h>
+-
+-FilterContainer::FilterContainer(PwPipelineManager* pipe_manager, PwPluginBase* plugin, AppConfig* settings) :
+-    pm(pipe_manager),
+-    settings(settings),
+-    plugin(plugin)
+-{
+-
+-    // TODO remove
+-    /*if (settings->get<bool>(AppConfig::AudioOutputUseDefault)) {
+-        settings->set(AppConfig::AudioOutputDevice, QString::fromStdString(pm->output_device.name));
+-    } else {
+-        auto found = false;
+-
+-        const auto output_device = settings->get<std::string>(AppConfig::AudioOutputDevice);
+-
+-        for (const auto& [id, node] : pm->node_map) {
+-            if (node.name == output_device) {
+-                pm->output_device = node;
+-
+-                found = true;
+-
+-                break;
+-            }
+-        }
+-
+-        if (!found) {
+-            settings->set(AppConfig::AudioOutputDevice, QString::fromStdString(pm->output_device.name));
+-        }
+-    }*/
+-
+-    auto* PULSE_SINK = std::getenv("PULSE_SINK");
+-    if (PULSE_SINK != nullptr && PULSE_SINK != tags::pipewire::ee_sink_name) {
+-      for (const auto& [serial, node] : pm->node_map) {
+-        if (node.name == PULSE_SINK) {
+-          pm->output_device = node;
+-
+-          settings->set(AppConfig::AudioOutputDevice, QString::fromStdString(pm->output_device.name));
+-
+-          break;
+-        }
+-      }
+-    }
+-
+-    pm->stream_output_added.connect(sigc::mem_fun(*this, &FilterContainer::on_app_added));
+-    pm->link_changed.connect(sigc::mem_fun(*this, &FilterContainer::on_link_changed));
+-
+-    connect_filters();
+-
+-    QObject::connect(settings, &AppConfig::updated, [&, this](const auto& key, const auto& value) {
+-        if(key != AppConfig::AudioOutputDevice)
+-            return;
+-
+-        const auto name = value.toString().toStdString();
+-
+-        if (name.empty()) {
+-            return;
+-        }
+-
+-        for (const auto& [serial, node] : pm->node_map) {
+-            if (node.name == name) {
+-                pm->output_device = node;
+-
+-                set_bypass(false);
+-                break;
+-            }
+-        }
+-
+-
+-    });
+-
+-//------
+-     pm->sink_added.connect([=, this](const NodeInfo node) {
+-       if (node.name == settings->get<std::string>(AppConfig::AudioOutputDevice)) {
+-         pm->output_device = node;
+-
+-         /*if (g_settings_get_boolean(global_settings, "bypass") != 0) {
+-           g_settings_set_boolean(global_settings, "bypass", 0);
+-
+-           return;  // filter connected through update_bypass_state
+-         }*/
+-
+-         util::debug("Target output device added: " + node.name);
+-         set_bypass(false);
+-       }
+-     });
+-
+-     pm->sink_removed.connect([=, this](const NodeInfo node) {
+-
+-       if (!settings->get<bool>(AppConfig::AudioOutputUseDefault)) {
+-         if (node.name == settings->get<std::string>(AppConfig::AudioOutputDevice)) {
+-           pm->output_device.id = SPA_ID_INVALID;
+-           pm->output_device.serial = SPA_ID_INVALID;
+-           util::debug("Target output device removed; fallback disabled");
+-         }
+-       }
+-     });
++#include "config/AppConfig.h"
++#include <QCoreApplication>
++#include <algorithm>
++#include <optional>
++
++FilterContainer::FilterContainer(PwPipelineManager* manager, PwPluginBase* processor, AppConfig* config)
++    : policy(config->getPath("device_rules.json")), pm(manager), settings(config), plugin(processor) {
++    debounce.setSingleShot(true);
++    debounce.setInterval(20); // coalesce the two metadata keys of a KDE stream move
++    connect(&debounce, &QTimer::timeout, this, &FilterContainer::reconcile);
++    poll.setInterval(500); // also catches routes/properties changed without a link event
++    connect(&poll, &QTimer::timeout, this, &FilterContainer::refresh);
++    connections.push_back(pm->stream_output_added.connect([this](NodeInfo) { refresh(); }));
++    connections.push_back(pm->stream_output_changed.connect([this](NodeInfo) { refresh(); }));
++    connections.push_back(pm->stream_output_removed.connect([this](uint64_t serial) {
++        owned.erase(serial); refresh();
++    }));
++    connections.push_back(pm->stream_target_changed.connect([this](uint32_t) { refresh(); }));
++    connections.push_back(pm->new_default_sink_name.connect([this](std::string) { refresh(); }));
++    connections.push_back(pm->sink_added.connect([this](NodeInfo) { refresh(); }));
++    connections.push_back(pm->sink_removed.connect([this](NodeInfo) { refresh(); }));
++    connections.push_back(pm->device_output_route_changed.connect([this](DeviceInfo) { refresh(); }));
++    connect(settings, &AppConfig::updated, this, [this](auto, const auto&) { refresh(); });
++    poll.start();
++    refresh();
+ }
+ 
+ FilterContainer::~FilterContainer() {
++    shuttingDown = true;
++    poll.stop(); debounce.stop();
++    for (auto& connection : connections) connection.disconnect();
++    restoreOwned();
+     disconnect_filters();
+-
+-    util::debug("destroyed");
+ }
+ 
+-void FilterContainer::on_app_added(const NodeInfo node_info) {
+-    const auto& is_blocklisted = settings->isAppBlocked(QString::fromStdString(node_info.name)); // TODO application_id or name?
+-
+-    if (!is_blocklisted) {
+-        pm->connect_stream_output(node_info.id);
+-    }
++void FilterContainer::refresh() {
++    if (!shuttingDown && !debounce.isActive()) debounce.start();
+ }
+ 
+-auto FilterContainer::apps_want_to_play() -> bool {
+-  for (const auto& link : pm->list_links) {
+-    if (link.input_node_id == pm->ee_sink_node.id) {
+-      if (link.state == PW_LINK_STATE_ACTIVE) {
+-        return true;
+-      }
+-    }
+-  }
+-
+-  return false;
++bool FilterContainer::targetsUs(const PwPipelineManager::StreamTarget& target) const {
++    if (target.object) return target.object->second == std::to_string(pm->ee_sink_node.serial) ||
++                              target.object->second == pm->ee_sink_node.name;
++    return target.node && target.node->second == std::to_string(pm->ee_sink_node.id);
+ }
+ 
+-void FilterContainer::on_link_changed(const LinkInfo link_info) {
+-  // We are not interested in the other link states
+-
+-  if (link_info.state != PW_LINK_STATE_ACTIVE && link_info.state != PW_LINK_STATE_PAUSED) {
+-    return;
+-  }
+-
+-  /*
+-    If bypass is enabled do not touch the plugin pipeline
+-  */
+-
+-  if (bypass) {
+-    return;
+-  }
+-
+-  if (apps_want_to_play()) {
+-    if (list_proxies.empty()) {
+-      util::debug("At least one app linked to our device wants to play. Linking our filters.");
+-
+-      connect_filters();
+-    }
+-  } else {
+-
+-    int inactivity_timeout = settings->get<int>(AppConfig::AudioInactivityTimeout);
+-
+-    g_timeout_add_seconds(inactivity_timeout, GSourceFunc(+[](FilterContainer* self) {
+-                            if (!self->apps_want_to_play() && !self->list_proxies.empty()) {
+-                              util::debug("No app linked to our device wants to play. Unlinking our filters.");
+-
+-                              self->disconnect_filters();
+-                            }
+-
+-                            return G_SOURCE_REMOVE;
+-                          }),
+-                          this);
+-  }
++PwPipelineManager::StreamTarget FilterContainer::processingTarget() const {
++    return {{std::make_pair("Spa:Id", std::to_string(pm->ee_sink_node.id))},
++            {std::make_pair("Spa:Id", std::to_string(pm->ee_sink_node.serial))}};
+ }
+ 
+-void FilterContainer::connect_filters(const bool& bypass) {
+-  const auto output_device_name = settings->get<std::string>(AppConfig::AudioOutputDevice); // TODO test
+-
+-  // checking if the output device exists
+-  if (output_device_name.empty()) {
+-    util::debug("No output device set. Aborting the link");
+-
+-    return;
+-  }
+-
+-  bool dev_exists = false;
+-
+-  for (const auto& [serial, node] : pm->node_map) {
+-    if (node.name == output_device_name) {
+-      dev_exists = true;
+-
+-      pm->output_device = node;
+-
+-      break;
+-    }
+-  }
+-
+-  if (!dev_exists) {
+-    util::debug("The output device " + output_device_name + " is not available. Aborting the link");
+-
+-    return;
+-  }
+-
+-  uint32_t prev_node_id = pm->ee_sink_node.id;
+-  uint32_t next_node_id = 0U;
+-
+-  // link plugin
+-  if ((!plugin->connected_to_pw) ? plugin->connect_to_pw() : true) {
+-      next_node_id = plugin->get_node_id();
+-
+-      const auto links = pm->link_nodes(prev_node_id, next_node_id);
+-
+-      for (auto* link : links) {
+-        list_proxies.push_back(link);
+-      }
+-
+-      if (links.size() == 2U) {
+-        prev_node_id = next_node_id;
+-      } else {
+-        util::warning(" link from node " + util::to_string(prev_node_id) + " to node " +
+-                      util::to_string(next_node_id) + " failed");
+-      }
+-  }
+-
+-  // waiting for the output device ports information to be available.
+-
+-  int timeout = 0;
+-
+-  while (pm->count_node_ports(pm->output_device.id) < 2) {
+-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+-
+-    timeout++;
+-
+-    if (timeout > 10000) {  // 10 seconds
+-      util::warning("Information about the ports of the output device " + pm->output_device.name + " with id " +
+-                    util::to_string(pm->output_device.id) + " are taking to long to be available. Aborting the link");
++PwPipelineManager::StreamTarget FilterContainer::releaseTarget(uint32_t id,
++    const PwPipelineManager::StreamTarget& original) {
++    auto current = pm->stream_target(id);
++    const auto expected = processingTarget();
++    auto restored = current;
++    // A modern session manager may replace only target.object; a legacy one
++    // may replace only target.node. Release only keys still owned by us.
++    if (current.node == expected.node) restored.node = original.node;
++    if (current.object == expected.object) restored.object = original.object;
++    if (restored != current) pm->restore_stream_target(id, restored);
++    return restored;
++}
+ 
+-      return;
++void FilterContainer::restoreOwned() {
++    for (const auto& [serial, stream] : owned) {
++        pm->lock();
++        auto it = pm->node_map.find(serial);
++        bool alive = it != pm->node_map.end() && it->second.id == stream.id;
++        pm->unlock();
++        if (alive) releaseTarget(stream.id, stream.original);
+     }
+-  }
+-
+-  // link output device
+-
+-   next_node_id = pm->output_device.id;
+-
+-   const auto links = pm->link_nodes(prev_node_id, next_node_id);
+-
+-   for (auto* link : links) {
+-     list_proxies.push_back(link);
+-   }
+-
+-   if (links.size() < 2U) {
+-     util::warning(" link from node " + util::to_string(prev_node_id) + " to output device " +
+-                   util::to_string(next_node_id) + " failed");
+-   }
++    owned.clear();
+ }
+ 
+-void FilterContainer::disconnect_filters() {
+-    std::set<uint32_t> link_id_list;
+-
+-    for (const auto& link : pm->list_links) {
+-      if (link.input_node_id == plugin->get_node_id() || link.output_node_id == plugin->get_node_id()) {
+-        link_id_list.insert(link.id);
+-      }
++void FilterContainer::reconcile() {
++    pm->lock();
++    auto nodes = pm->node_map;
++    auto devices = pm->list_devices;
++    auto defaultName = pm->default_output_device_name;
++    pm->unlock();
++    NodeInfo selected;
++    for (const auto& [serial, node] : nodes) {
++        if (node.media_class == tags::pipewire::media_class::sink && node.name == defaultName &&
++            node.name != tags::pipewire::ee_sink_name) selected = node;
+     }
+-
+-    if (plugin->connected_to_pw) {
+-        util::debug("disconnecting the " + plugin->name + " filter from PipeWire");
+-
+-        plugin->disconnect_from_pw();
++    QString deviceId = "sink:" + QString::fromStdString(selected.name);
++    QString route = "*";
++    for (const auto& device : devices) {
++        if (device.id == selected.device_id) {
++            deviceId = QString::fromStdString(device.name);
++            route = device.output_route_name.empty() ? "*" : QString::fromStdString(device.output_route_name);
++            break;
++        }
+     }
+-
+-    for (const auto& id : link_id_list) {
+-      pm->destroy_object(static_cast<int>(id));
++    bool enabled = selected.id != SPA_ID_INVALID && policy.enabled(deviceId, route);
++    if (selected.serial != output.serial || enabled != processing) {
++        restoreOwned();
++        disconnect_filters();
++        output = selected;
++        processing = enabled;
++        pm->output_device = selected;
++    }
++    const auto blocked = settings->get<QStringList>(AppConfig::AudioAppBlocklist);
++    const bool invert = settings->get<bool>(AppConfig::AudioAppBlocklistInvert);
++    auto resolveTarget = [&](const PwPipelineManager::StreamTarget& intent, const NodeInfo& stream)
++        -> std::optional<uint32_t> {
++        std::string token;
++        bool numericId = false;
++        if (intent.object) token = intent.object->second;
++        else if (intent.node) { token = intent.node->second; numericId = true; }
++        else token = stream.target_object;
++        if (token.empty() || token == "-1" || token == "0") return selected.id;
++        if (token == tags::pipewire::ee_sink_name || token == std::to_string(pm->ee_sink_node.serial))
++            return selected.id; // recover an explicitly selected legacy virtual sink
++        for (const auto& [serial, node] : nodes) {
++            if (node.media_class != tags::pipewire::media_class::sink) continue;
++            if (token == node.name || token == std::to_string(numericId ? node.id : serial)) return node.id;
++        }
++        return std::nullopt; // an unresolved explicit destination must never be overridden
++    };
++    for (const auto& [serial, node] : nodes) {
++        if (node.media_class != tags::pipewire::media_class::output_stream) continue;
++        auto target = pm->stream_target(node.id);
++        auto it = owned.find(serial);
++        if (it != owned.end() && target != processingTarget()) {
++            target = releaseTarget(node.id, it->second.original);
++            owned.erase(it); it = owned.end(); // KDE or the application changed its destination
++        }
++        auto intent = it != owned.end() ? it->second.original : target;
++        if (it == owned.end() && targetsUs(target)) intent = {}; // stale metadata after a previous exit/crash
++        auto destination = resolveTarget(intent, node);
++        bool appBlocked = blocked.contains(QString::fromStdString(node.name));
++        if (invert) appBlocked = !appBlocked;
++        const bool wantsDSP = processing && !appBlocked && node.n_output_ports <= 2 &&
++                              destination && *destination == output.id;
++        if (wantsDSP) {
++            if (!plugin->connected_to_pw || links.empty()) connect_filters();
++            if (plugin->connected_to_pw && !links.empty() && it == owned.end()) {
++                owned.emplace(serial, OwnedStream{node.id, intent});
++                pm->connect_stream_output(node.id);
++            }
++        } else {
++            if (it != owned.end()) {
++                if (targetsUs(target)) pm->restore_stream_target(node.id, it->second.original);
++                owned.erase(it);
++            } else if (targetsUs(target)) pm->restore_stream_target(node.id, intent);
++        }
+     }
+-
+-    pm->destroy_links(list_proxies);
+-
+-    list_proxies.clear();
+-
+-    // remove_unused_filters();
+ }
+ 
+-void FilterContainer::set_bypass(const bool& state) {
+-  bypass = state;
+-
+-  disconnect_filters();
+-
+-  connect_filters(state);
++void FilterContainer::connect_filters(const bool&) {
++    if (!processing || output.id == SPA_ID_INVALID || !links.empty()) return;
++    // Port discovery is asynchronous. A later reconciliation retries without blocking the GUI.
++    if (pm->count_node_ports(output.id) < 2) return;
++    if (!plugin->connected_to_pw && !plugin->connect_to_pw()) return;
++    auto inputLinks = pm->link_nodes(pm->ee_sink_node.id, plugin->get_node_id());
++    auto outputLinks = pm->link_nodes(plugin->get_node_id(), output.id);
++    links.insert(links.end(), inputLinks.begin(), inputLinks.end());
++    links.insert(links.end(), outputLinks.begin(), outputLinks.end());
++    if (inputLinks.size() != 2 || outputLinks.size() != 2) {
++        disconnect_filters(); // leave applications on their original working path
++        return;
++    }
+ }
+ 
+-void FilterContainer::activate_filters() {
+-    plugin->set_active(true);
++void FilterContainer::disconnect_filters() {
++    if (plugin->connected_to_pw) plugin->disconnect_from_pw();
++    pm->destroy_links(links);
++    links.clear();
+ }
+ 
+-void FilterContainer::deactivate_filters() {
+-    plugin->set_active(false);
++void FilterContainer::set_bypass(const bool& state) {
++    if (state) { restoreOwned(); disconnect_filters(); }
++    refresh();
+ }
+diff --git a/src/audio/pipewire/FilterContainer.h b/src/audio/pipewire/FilterContainer.h
+index 65503bc..340b003 100644
+--- a/src/audio/pipewire/FilterContainer.h
++++ b/src/audio/pipewire/FilterContainer.h
+@@ -24,50 +24,42 @@
+  *  along with EasyEffects.  If not, see <https://www.gnu.org/licenses/>.
+  */
+ 
+-#ifndef FILTERCONTAINER_H
+-#define FILTERCONTAINER_H
+-
++#pragma once
+ #include "PwPipelineManager.h"
+ #include "PwBasePlugin.h"
++#include "DevicePolicy.h"
++#include <QObject>
++#include <QTimer>
++#include <map>
+ 
+ class AppConfig;
+ 
+-class FilterContainer {
+- public:
+-  FilterContainer(PwPipelineManager* pipe_manager, PwPluginBase* plugin, AppConfig* settings);
+-  FilterContainer(const FilterContainer&) = delete;
+-  auto operator=(const FilterContainer&) -> FilterContainer& = delete;
+-  FilterContainer(const FilterContainer&&) = delete;
+-  auto operator=(const FilterContainer&&) -> FilterContainer& = delete;
+-  ~FilterContainer();
+-
+-  void set_bypass(const bool& state);
+-
+-  void connect_filters(const bool& bypass = false);
+-
+-  void disconnect_filters();
+-
+-  PwPipelineManager* pm = nullptr;
+-
+-  AppConfig* settings;
+-
+- private:
+-  bool bypass = false;
+-
+-  PwPluginBase* plugin;
+-
+-  std::vector<pw_proxy*> list_proxies, list_proxies_listen_mic;
+-
+-  void activate_filters();
+-
+-  void deactivate_filters();
+-
+-  void on_app_added(NodeInfo node_info);
+-
+-  void on_link_changed(LinkInfo link_info);
+-
+-  auto apps_want_to_play() -> bool;
+-
++// A single upstream DSP engine, following the desktop's default output.
++// Explicit application targets are preserved, including while processing is off.
++class FilterContainer : public QObject, public sigc::trackable {
++public:
++    FilterContainer(PwPipelineManager*, PwPluginBase*, AppConfig*);
++    ~FilterContainer();
++    void connect_filters(const bool& bypass = false);
++    void disconnect_filters();
++    void set_bypass(const bool& state);
++    void refresh();
++    bool isProcessingOutput() const { return processing && plugin->connected_to_pw; }
++    DevicePolicy policy;
++    PwPipelineManager* pm;
++    AppConfig* settings;
++private:
++    struct OwnedStream { uint32_t id; PwPipelineManager::StreamTarget original; };
++    PwPluginBase* plugin;
++    QTimer debounce, poll;
++    std::vector<sigc::connection> connections;
++    std::vector<pw_proxy*> links;
++    std::map<uint64_t, OwnedStream> owned;
++    NodeInfo output;
++    bool processing = false, shuttingDown = false;
++    void reconcile();
++    void restoreOwned();
++    bool targetsUs(const PwPipelineManager::StreamTarget&) const;
++    PwPipelineManager::StreamTarget processingTarget() const;
++    PwPipelineManager::StreamTarget releaseTarget(uint32_t id, const PwPipelineManager::StreamTarget& original);
+ };
+-
+-#endif
+diff --git a/src/audio/pipewire/PipewireAudioService.cpp b/src/audio/pipewire/PipewireAudioService.cpp
+index cf2468c..6de4580 100644
+--- a/src/audio/pipewire/PipewireAudioService.cpp
++++ b/src/audio/pipewire/PipewireAudioService.cpp
+@@ -13,6 +13,7 @@
+ PipewireAudioService::PipewireAudioService() : IAudioService()
+ {
+     Glib::init();
++    AppConfig::instance().set(AppConfig::AudioOutputUseDefault, true);
+ 
+     mgr = std::make_unique<PwPipelineManager>(AppConfig::instance().get<bool>(AppConfig::AudioVirtualSinkForceMaxValue));
+     appMgr = std::make_unique<PwAppManager>(mgr.get());
+@@ -80,10 +81,10 @@ PipewireAudioService::PipewireAudioService() : IAudioService()
+ 
+ PipewireAudioService::~PipewireAudioService()
+ {
+-    mgr.release();
+-    appMgr.release();
+-    effects.release();
++    effects.reset();
+     delete plugin;
++    appMgr.reset();
++    mgr.reset();
+ }
+ 
+ void PipewireAudioService::onAppConfigUpdated(const AppConfig::Key &key, const QVariant &value)
+@@ -162,7 +163,10 @@ IAppManager *PipewireAudioService::appManager()
+ std::vector<IOutputDevice> PipewireAudioService::sinkDevices()
+ {
+     std::vector<IOutputDevice> devices;
+-    for(const auto &[id, node] : mgr.get()->node_map)
++    mgr->lock();
++    auto nodes = mgr->node_map;
++    mgr->unlock();
++    for(const auto &[id, node] : nodes)
+     {
+         if(node.media_class == "Audio/Sink" && node.name != "jamesdsp_sink"){
+             for(const auto &blacklist : mgr.get()->blocklist_node_name){
+@@ -181,7 +185,10 @@ std::vector<IOutputDevice> PipewireAudioService::sinkDevices()
+ std::vector<IOutputDevice> PipewireAudioService::outputDevices()
+ {
+     std::vector<IOutputDevice> devices;
+-    for(const auto &device : mgr.get()->list_devices)
++    mgr->lock();
++    auto cards = mgr->list_devices;
++    mgr->unlock();
++    for(const auto &device : cards)
+     {
+         devices.push_back(PwDevice(device));
+     }
+@@ -190,6 +197,8 @@ std::vector<IOutputDevice> PipewireAudioService::outputDevices()
+ 
+ DspStatus PipewireAudioService::status()
+ {
+-    return plugin->status();
++    auto state = plugin->status();
++    state.IsProcessing = state.IsProcessing && effects->isProcessingOutput();
++    return state;
+ }
+ 
+diff --git a/src/audio/pipewire/PipewireAudioService.h b/src/audio/pipewire/PipewireAudioService.h
+index 42f3212..b1c1be2 100644
+--- a/src/audio/pipewire/PipewireAudioService.h
++++ b/src/audio/pipewire/PipewireAudioService.h
+@@ -34,6 +34,9 @@ public slots:
+     std::vector<IOutputDevice> outputDevices() override;
+     DspStatus status() override;
+ 
++    DevicePolicy* devicePolicy() { return &effects->policy; }
++    void refreshDevicePolicy() { effects->refresh(); }
++
+ private:
+     std::unique_ptr<PwPipelineManager> mgr;
+     std::unique_ptr<PwAppManager> appMgr;
+diff --git a/src/audio/pipewire/PipewireCore.pri b/src/audio/pipewire/PipewireCore.pri
+index 39d02f7..3020a94 100644
+--- a/src/audio/pipewire/PipewireCore.pri
++++ b/src/audio/pipewire/PipewireCore.pri
+@@ -1,6 +1,7 @@
+ INCLUDEPATH += $$PWD
+ 
+ HEADERS += \
++    $$PWD/DevicePolicy.h \
+     $$PWD/FilterContainer.h \
+     $$PWD/PipewireAudioService.h \
+     $$PWD/PwAppManager.h \
+@@ -11,6 +12,7 @@ HEADERS += \
+     $$PWD/PwPipelineManager.h
+ 
+ SOURCES += \
++    $$PWD/DevicePolicy.cpp \
+     $$PWD/FilterContainer.cpp \
+     $$PWD/PipewireAudioService.cpp \
+     $$PWD/PwAppManager.cpp \
+diff --git a/src/audio/pipewire/PwAppManager.cpp b/src/audio/pipewire/PwAppManager.cpp
+index 3e27790..f4b3340 100644
+--- a/src/audio/pipewire/PwAppManager.cpp
++++ b/src/audio/pipewire/PwAppManager.cpp
+@@ -83,12 +83,12 @@ void PwAppManager::handleSettingsUpdate(const AppConfig::Key& key, const QVarian
+ 
+             if (is_blocklisted && app_is_enabled)
+             {
+-                mgr->disconnect_stream(node.id);
++                // FilterContainer restores the original application destination.
+             }
+             else if (!app_is_enabled)
+             {
+                 if (node.media_class == tags::pipewire::media_class::output_stream) {
+-                  mgr->connect_stream_output(node.id);
++                  // Routing is reconciled with the selected device's policy.
+                 }
+             }
+         }
+diff --git a/src/audio/pipewire/PwDataTypes.h b/src/audio/pipewire/PwDataTypes.h
+index 2c490b4..69f5859 100644
+--- a/src/audio/pipewire/PwDataTypes.h
++++ b/src/audio/pipewire/PwDataTypes.h
+@@ -35,6 +35,8 @@ struct NodeInfo {
+ 
+   std::string application_id;
+ 
++  std::string target_object;
++
+   int priority = -1;
+ 
+   pw_node_state state = PW_NODE_STATE_IDLE;
+diff --git a/src/audio/pipewire/PwDevice.cpp b/src/audio/pipewire/PwDevice.cpp
+index cc143a7..3c421aa 100644
+--- a/src/audio/pipewire/PwDevice.cpp
++++ b/src/audio/pipewire/PwDevice.cpp
+@@ -3,6 +3,7 @@
+ PwDevice::PwDevice(NodeInfo info)
+ {
+     id = info.id;
++    device_id = info.device_id;
+     name = info.name;
+     description = info.description;
+ }
+diff --git a/src/audio/pipewire/PwPipelineManager.cpp b/src/audio/pipewire/PwPipelineManager.cpp
+index c2e2c53..7fbe907 100644
+--- a/src/audio/pipewire/PwPipelineManager.cpp
++++ b/src/audio/pipewire/PwPipelineManager.cpp
+@@ -176,6 +176,7 @@ void on_destroy_node_proxy(void* data) {
+   spa_hook_remove(&nd->proxy_listener);
+ 
+   pm->node_map.erase(node_it);
++  pm->stream_targets.erase(nd->nd_info->id);
+ 
+   if (!PwPipelineManager::exiting) {
+     if (nd->nd_info->media_class == tags::pipewire::media_class::source) {
+@@ -929,6 +930,24 @@ auto on_metadata_property(void* data, uint32_t id, const char* key, const char*
+   const std::string str_type = (type != nullptr) ? type : "";
+   const std::string str_value = (value != nullptr) ? value : "";
+ 
++  if (key == nullptr) {
++    pm->stream_targets.erase(id);
++    util::idle_add([pm, id] {
++      if (!PwPipelineManager::exiting) pm->stream_target_changed.emit(id);
++    });
++    return 0;
++  }
++
++  if (str_key == "target.object" || str_key == "target.node") {
++    auto& target = pm->stream_targets[id];
++    auto& entry = str_key == "target.object" ? target.object : target.node;
++    entry = value ? PwPipelineManager::MetadataValue(std::make_pair(str_type, str_value)) : std::nullopt;
++    util::idle_add([pm, id] {
++      if (!PwPipelineManager::exiting) pm->stream_target_changed.emit(id);
++    });
++    return 0;
++  }
++
+   util::debug("new metadata property: " + util::to_string(id) + ", " + str_key + ", " + str_type + ", " + str_value);
+ 
+   if (str_value.empty()) {
+@@ -1137,6 +1156,8 @@ void on_registry_global(void* data,
+     nd->nd_info->media_role = media_role;
+     nd->nd_info->name = node_name;
+ 
++    spa_dict_get_string(props, "target.object", nd->nd_info->target_object);
++
+     spa_dict_get_string(props, PW_KEY_NODE_DESCRIPTION, nd->nd_info->description);
+ 
+     spa_dict_get_num(props, PW_KEY_PRIORITY_SESSION, nd->nd_info->priority);
+@@ -1631,6 +1652,26 @@ void PwPipelineManager::connect_stream_output(const uint32_t& id) const {
+   set_metadata_target_node(id, ee_sink_node.id, ee_sink_node.serial);
+ }
+ 
++PwPipelineManager::StreamTarget PwPipelineManager::stream_target(uint32_t id) const {
++  lock();
++  auto it = stream_targets.find(id);
++  StreamTarget result = it == stream_targets.end() ? StreamTarget{} : it->second;
++  unlock();
++  return result;
++}
++
++void PwPipelineManager::restore_stream_target(uint32_t id, const StreamTarget& target) const {
++  if (!metadata) return;
++  lock();
++  auto write = [&](const char* key, const MetadataValue& value) {
++    pw_metadata_set_property(metadata, id, key, value ? value->first.c_str() : nullptr,
++                             value ? value->second.c_str() : nullptr);
++  };
++  write("target.node", target.node);
++  write("target.object", target.object);
++  sync_wait_unlock();
++}
++
+ void PwPipelineManager::connect_stream_input(const uint32_t& id) const {
+   //set_metadata_target_node(id, ee_source_node.id, ee_source_node.serial);
+ }
+@@ -1692,6 +1733,7 @@ void PwPipelineManager::set_node_mute(pw_proxy* proxy, const bool& state) {
+ }
+ 
+ auto PwPipelineManager::count_node_ports(const uint32_t& node_id) -> uint32_t {
++  lock();
+   uint32_t count = 0;
+ 
+   for (const auto& port : list_ports) {
+@@ -1700,6 +1742,7 @@ auto PwPipelineManager::count_node_ports(const uint32_t& node_id) -> uint32_t {
+     }
+   }
+ 
++  unlock();
+   return count;
+ }
+ 
+@@ -1712,7 +1755,11 @@ auto PwPipelineManager::link_nodes(const uint32_t& output_node_id,
+   std::vector<PortInfo> list_input_ports;
+   auto use_audio_channel = true;
+ 
+-  for (const auto& port : list_ports) {
++  lock();
++  const auto ports = list_ports;
++  unlock();
++
++  for (const auto& port : ports) {
+     if (port.node_id == output_node_id && port.direction == "out") {
+       list_output_ports.push_back(port);
+ 
+diff --git a/src/audio/pipewire/PwPipelineManager.h b/src/audio/pipewire/PwPipelineManager.h
+index ee2bf77..f6a2f83 100644
+--- a/src/audio/pipewire/PwPipelineManager.h
++++ b/src/audio/pipewire/PwPipelineManager.h
+@@ -45,11 +45,21 @@
+ #include <map>
+ #include <span>
+ #include <ranges>
++#include <optional>
+ 
+ #include "PwDataTypes.h"
+ 
+ class PwPipelineManager {
+  public:
++  using MetadataValue = std::optional<std::pair<std::string, std::string>>;
++  struct StreamTarget {
++    MetadataValue node, object;
++    bool operator==(const StreamTarget&) const = default;
++  };
++  std::map<uint32_t, StreamTarget> stream_targets;
++  StreamTarget stream_target(uint32_t id) const;
++  void restore_stream_target(uint32_t id, const StreamTarget& target) const;
++  sigc::signal<void(uint32_t)> stream_target_changed;
+   PwPipelineManager(bool sinkForceMaxVolume);
+   PwPipelineManager(const PwPipelineManager&) = delete;
+   auto operator=(const PwPipelineManager&) -> PwPipelineManager& = delete;
+diff --git a/src/interface/fragment/NativeDeviceWidget.cpp b/src/interface/fragment/NativeDeviceWidget.cpp
+new file mode 100644
+index 0000000..ec06dba
+--- /dev/null
++++ b/src/interface/fragment/NativeDeviceWidget.cpp
+@@ -0,0 +1,123 @@
++#include "NativeDeviceWidget.h"
++#include <algorithm>
++#include <QHeaderView>
++#include <QJsonDocument>
++#include <QJsonObject>
++#include <QMessageBox>
++#include <QProcess>
++#include <QPushButton>
++#include <QSet>
++#include <QSignalBlocker>
++#include <QVBoxLayout>
++
++NativeDeviceWidget::NativeDeviceWidget(DevicePolicy* devicePolicy, DeviceProvider outputs, DeviceProvider sinks,
++    std::function<void()> refreshPolicy, QWidget* parent)
++    : QWidget(parent), policy(devicePolicy), outputDevices(std::move(outputs)), sinkDevices(std::move(sinks)),
++      notify(std::move(refreshPolicy)) {
++    auto* layout = new QVBoxLayout(this);
++    explanation = new QLabel(tr("Choose which outputs get effects. Audio follows your desktop's default output. "
++        "Applications assigned to another output keep that destination."), this);
++    explanation->setWordWrap(true);
++    layout->addWidget(explanation);
++    devices = new QTableWidget(0, 3, this);
++    devices->setObjectName("nativeDeviceRules");
++    devices->setHorizontalHeaderLabels({tr("Device"), tr("Output / route"), tr("Effects")});
++    devices->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
++    devices->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
++    devices->horizontalHeader()->setSectionResizeMode(2, QHeaderView::ResizeToContents);
++    devices->verticalHeader()->hide();
++    devices->setMinimumHeight(150);
++    layout->addWidget(devices);
++    newDevices = new QCheckBox(tr("Enable effects for new devices automatically"), this);
++    layout->addWidget(newDevices);
++    kernelStatus = new QLabel(this);
++    kernelStatus->setWordWrap(true);
++    layout->addWidget(kernelStatus);
++    auto* refreshButton = new QPushButton(tr("Refresh devices and real-time status"), this);
++    layout->addWidget(refreshButton);
++    connect(refreshButton, &QPushButton::clicked, this, [this] { refresh(); refreshKernel(); });
++    connect(devices, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
++        if (item->column() != 2) return;
++        bool ok = policy->setEnabled(item->data(Qt::UserRole).toString(),
++            item->data(Qt::UserRole + 1).toString(), item->data(Qt::UserRole + 2).toString(),
++            item->checkState() == Qt::Checked);
++        if (!ok) QMessageBox::warning(this, tr("Device rules"), tr("Could not save the device rule. Check the configuration file and its permissions."));
++        notify(); refresh();
++    });
++    connect(newDevices, &QCheckBox::toggled, this, [this](bool value) {
++        if (!policy->setDefaultEnabled(value))
++            QMessageBox::warning(this, tr("Device rules"), tr("Could not save the default device rule."));
++        notify(); refresh();
++    });
++    timer.setInterval(2500);
++    connect(&timer, &QTimer::timeout, this, [this] { if (isVisible()) refresh(); });
++    timer.start();
++    refresh(); refreshKernel();
++}
++
++void NativeDeviceWidget::refresh() {
++    QSignalBlocker tableBlock(devices), defaultBlock(newDevices);
++    newDevices->setChecked(policy->defaultEnabled());
++    devices->setRowCount(0);
++    QSet<QString> shown;
++    auto append = [&](const QString& id, const QString& name, const QString& route, const QString& routeLabel) {
++        const QString key = id + QChar(0x1f) + route;
++        if (shown.contains(key)) return;
++        shown.insert(key);
++        int row = devices->rowCount(); devices->insertRow(row);
++        auto* label = new QTableWidgetItem(name);
++        label->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
++        label->setToolTip(id);
++        devices->setItem(row, 0, label);
++        auto* output = new QTableWidgetItem(routeLabel);
++        output->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
++        devices->setItem(row, 1, output);
++        auto* check = new QTableWidgetItem;
++        check->setFlags(Qt::ItemIsEnabled | Qt::ItemIsUserCheckable);
++        check->setData(Qt::UserRole, id);
++        check->setData(Qt::UserRole + 1, route);
++        check->setData(Qt::UserRole + 2, name + " — " + routeLabel);
++        check->setCheckState(policy->enabled(id, route) ? Qt::Checked : Qt::Unchecked);
++        devices->setItem(row, 2, check);
++    };
++    QSet<uint32_t> cardIds;
++    const auto sinks = sinkDevices();
++    for (const auto& device : outputDevices()) {
++        const bool hasSink = std::any_of(sinks.begin(), sinks.end(), [&](const auto& sink) { return sink.device_id == device.id; });
++        if (!hasSink && device.output_routes.isEmpty() && device.output_route_name.empty()) continue;
++        cardIds.insert(device.id);
++        const QString id = QString::fromStdString(device.name), name = QString::fromStdString(device.description);
++        append(id, name, "*", tr("All other routes"));
++        for (const auto& route : device.output_routes)
++            append(id, name, QString::fromStdString(route.name), QString::fromStdString(route.description));
++        if (!device.output_route_name.empty())
++            append(id, name, QString::fromStdString(device.output_route_name), QString::fromStdString(device.output_route_description));
++    }
++    for (const auto& sink : sinks) {
++        if (!cardIds.contains(sink.device_id))
++            append("sink:" + QString::fromStdString(sink.name), QString::fromStdString(sink.description), "*", tr("Output"));
++    }
++    for (const auto& entry : policy->rules()) {
++        auto rule = entry.toObject();
++        append(rule.value("device").toString(), rule.value("label").toString() + tr(" (saved)"),
++               rule.value("route").toString(), rule.value("route").toString());
++    }
++    if (!policy->error().isEmpty()) explanation->setText(policy->error());
++}
++
++void NativeDeviceWidget::refreshKernel() {
++    QProcess helper;
++    helper.start("/usr/bin/jamesdsp-native-diagnostics", {"--json"});
++    if (!helper.waitForFinished(3000) || helper.exitCode() != 0) {
++        kernelStatus->setText(tr("Real-time status unavailable. Run jamesdsp-native-diagnostics for details."));
++        return;
++    }
++    const auto result = QJsonDocument::fromJson(helper.readAllStandardOutput()).object();
++    const auto kernel = result.value("kernel").toObject();
++    const auto threads = result.value("threads").toArray();
++    int rt = 0;
++    for (const auto& thread : threads) if (thread.toObject().value("realtime").toBool()) ++rt;
++    const auto scheduling = result.value("threads_available").toBool() ? QString::number(rt) : tr("unavailable");
++    kernelStatus->setText(tr("Kernel: %1. Optional RT patch build: %2. Real-time threads in JamesDSP: %3.")
++        .arg(kernel.value("model").toString(), result.value("build_profile").toString(), scheduling));
++}
+diff --git a/src/interface/fragment/NativeDeviceWidget.h b/src/interface/fragment/NativeDeviceWidget.h
+new file mode 100644
+index 0000000..58495f9
+--- /dev/null
++++ b/src/interface/fragment/NativeDeviceWidget.h
+@@ -0,0 +1,27 @@
++#pragma once
++#include <QWidget>
++#include <QCheckBox>
++#include <QLabel>
++#include <QTableWidget>
++#include <QTimer>
++#include "DevicePolicy.h"
++#include "IOutputDevice.h"
++#include <functional>
++#include <vector>
++
++class NativeDeviceWidget : public QWidget {
++public:
++    using DeviceProvider = std::function<std::vector<IOutputDevice>()>;
++    NativeDeviceWidget(DevicePolicy* policy, DeviceProvider outputs, DeviceProvider sinks,
++                       std::function<void()> refreshPolicy, QWidget* parent);
++private:
++    void refresh();
++    void refreshKernel();
++    DevicePolicy* policy;
++    DeviceProvider outputDevices, sinkDevices;
++    std::function<void()> notify;
++    QLabel *explanation, *kernelStatus;
++    QTableWidget* devices;
++    QCheckBox* newDevices;
++    QTimer timer;
++};
+diff --git a/src/interface/fragment/SettingsFragment.cpp b/src/interface/fragment/SettingsFragment.cpp
+index 7938b6f..d614cc3 100644
+--- a/src/interface/fragment/SettingsFragment.cpp
++++ b/src/interface/fragment/SettingsFragment.cpp
+@@ -1,3 +1,4 @@
++#include <giomm.h>
+ #include <IAudioService.h>
+ 
+ #include "SettingsFragment.h"
+@@ -25,6 +26,11 @@
+ #include <QSystemTrayIcon>
+ #include <QTimer>
+ #include <QUrl>
++#include <QVBoxLayout>
++#ifndef USE_PULSEAUDIO
++#include "PipewireAudioService.h"
++#include "NativeDeviceWidget.h"
++#endif
+ using namespace std;
+ 
+ SettingsFragment::SettingsFragment(TrayIcon *trayIcon,
+@@ -40,6 +46,14 @@ SettingsFragment::SettingsFragment(TrayIcon *trayIcon,
+ {
+ 	ui->setupUi(this);
+ 
++#ifndef USE_PULSEAUDIO
++    ui->devices_group->hide();
++    if (auto* pipewire = dynamic_cast<PipewireAudioService*>(audioService))
++        qobject_cast<QVBoxLayout*>(ui->devices->layout())->insertWidget(0, new NativeDeviceWidget(
++            pipewire->devicePolicy(), [pipewire] { return pipewire->outputDevices(); },
++            [pipewire] { return pipewire->sinkDevices(); }, [pipewire] { pipewire->refreshDevicePolicy(); }, this));
++#endif
++
+ #ifdef USE_PULSEAUDIO
+     ui->selector->topLevelItem(3)->setHidden(true); // Hide devices
+     ui->devices->setVisible(false);
+diff --git a/src/src.pro b/src/src.pro
+index 004e89d..df632ae 100644
+--- a/src/src.pro
++++ b/src/src.pro
+@@ -5,6 +5,7 @@
+ #-------------------------------------------------
+ 
+ QT       += core xml network dbus
++USE_PULSEAUDIO: error("jamesdsp-native-arch supports PipeWire only")
+ 
+ !HEADLESS {
+     greaterThan(QT_MAJOR_VERSION, 5) {
+@@ -64,6 +65,7 @@ CONFIG += c++2a
+ 
+ !HEADLESS {
+     HEADERS += \
++        interface/fragment/NativeDeviceWidget.h \
+         data/PresetRuleTableDelegate.h \
+         interface/AnimatedJdspIcon.h \
+         interface/CListView.h \
+@@ -100,6 +102,7 @@ CONFIG += c++2a
+         utils/StyleHelper.h
+ 
+     SOURCES += \
++        interface/fragment/NativeDeviceWidget.cpp \
+         interface/AnimatedJdspIcon.cpp \
+         interface/CListView.cpp \
+         interface/CTableView.cpp \
