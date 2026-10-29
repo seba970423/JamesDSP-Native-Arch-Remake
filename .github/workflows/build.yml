@@ -14,7 +14,25 @@ concurrency:
 permissions:
   contents: read
 jobs:
+  layout-smoke:
+    runs-on: ubuntu-latest
+    container: archlinux:base-devel
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Prepare minimal Arch source checks
+        run: |
+          pacman -Syu --noconfirm --needed git python sudo
+          useradd -m builder
+          printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+      - name: Validate patched Devices/Tray UI without compiling audio engine
+        env:
+          JDSP_NATIVE_PROFILE: standard
+        run: |
+          sudo -u builder --preserve-env=JDSP_NATIVE_PROFILE makepkg -p PKGBUILD.source --syncdeps --noconfirm --nobuild --cleanbuild
+          sudo -u builder bash scripts/check-ui-layout.sh "$GITHUB_WORKSPACE/src/upstream"
   package:
+    needs: layout-smoke
     runs-on: ubuntu-latest
     container: archlinux:base-devel
     strategy:

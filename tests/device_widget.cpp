@@ -67,6 +67,26 @@ int main(int argc, char** argv) {
             form.show();
             for (int i = 0; i < 3; ++i) app.processEvents();
             if (scroll->horizontalScrollBar()->maximum() != 0) {
+                const auto printWidget = [&](const char* name, QWidget* child) {
+                    const auto hint = child->sizeHint();
+                    const auto minimum = child->minimumSizeHint();
+                    const auto layoutMinimum = child->layout() ? child->layout()->minimumSize().width() : -1;
+                    std::cerr << "  " << name << ": width=" << child->width()
+                              << " minWidth=" << child->minimumWidth()
+                              << " minHint=" << minimum.width()
+                              << " sizeHint=" << hint.width()
+                              << " layoutMin=" << layoutMinimum
+                              << " visible=" << child->isVisible() << std::endl;
+                };
+                printWidget("scroll content", scroll->widget());
+                printWidget("NativeDeviceWidget", widget);
+                printWidget("device rules table", table);
+                printWidget("blocklist group", ui.blocklistBox);
+                printWidget("blocklist description", ui.label_4);
+                printWidget("allowlist checkbox", ui.blocklistInvert);
+                printWidget("clear list button", ui.blocklistClear);
+                printWidget("new devices checkbox", widget->findChild<QCheckBox*>("nativeNewDeviceEffects"));
+                printWidget("refresh button", widget->findChild<QPushButton*>("nativeDeviceRefresh"));
                 std::cerr << "Devices page horizontal overflow: font=" << points << "pt"
                           << ", requested=" << size.width() << "x" << size.height()
                           << ", actual=" << form.width() << "x" << form.height()
