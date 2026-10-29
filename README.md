@@ -26,6 +26,7 @@ From this project's directory, run as your normal user:
 
 ```bash
 git clone https://github.com/seba970423/JamesDSP-Native-Arch-Remake
+cd JamesDSP-Native-Arch-Remake
 ./install.sh
 ```
 
