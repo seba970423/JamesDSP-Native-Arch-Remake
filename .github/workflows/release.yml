@@ -74,7 +74,7 @@ jobs:
             gh run download "$CI_RUN_ID" -n "jamesdsp-native-arch-$profile" -D "retrieved/$profile"
             mapfile -t packages < <(find "retrieved/$profile" -maxdepth 1 -type f \
               -name 'jamesdsp-native-arch-[0-9]*-x86_64.pkg.tar.zst' -print)
-            [[ $#packages[@]} -eq 1 ]] || {
+            [[ ${#packages[@]} -eq 1 ]] || {
               echo "Expected exactly one non-debug $profile package"; exit 1;
             }
             metadata=$(bsdtar -xOf "$packages[0]}" .PKGINFO)
