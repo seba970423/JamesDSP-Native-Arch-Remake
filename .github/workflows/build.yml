@@ -21,10 +21,12 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - name: Prepare minimal Arch source checks
         run: |
-          pacman -Syu --noconfirm --needed git python sudo gdb
+          pacman -Syu --noconfirm --needed git python sudo gdb actionlint
           useradd -m builder
           printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
+      - name: Validate GitHub Actions workflows
+        run: actionlint -color
       - name: Validate patched Devices/Tray UI without compiling audio engine
         env:
           JDSP_NATIVE_PROFILE: standard
@@ -59,3 +61,10 @@ jobs:
           # Exclude the large split -debug package from user-facing downloads.
           path: 'jamesdsp-native-arch-[0-9]*-x86_64.pkg.tar.zst'
           if-no-files-found: error
+  publish-release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [layout-smoke, package]
+    uses: ./.github/workflows/release.yml
+    permissions:
+      contents: write
+      actions: read
