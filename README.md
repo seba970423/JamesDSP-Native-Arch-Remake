@@ -230,7 +230,9 @@ The GitHub Release tag comes from `pkgver` in `packaging/PKGBUILD.source`
 (currently `0.2.3`). A tag is **never overwritten**. If the version has
 already been published, the publisher skips it; to release new changes, bump
 `pkgver` and keep `pkgrel=1`. A superseded `main` build also skips publishing.
-No separate manual workflow dispatch is necessary.
+No separate manual workflow dispatch is necessary. The normal installer
+also refuses an accidental downgrade to bundled 0.2.2 when a newer version is
+already installed; intentional recovery remains available via `./rollback.sh`.
 
 The fast smoke job now runs `actionlint` on the workflow definitions to catch
 malformed GitHub Actions syntax before starting either expensive build.
