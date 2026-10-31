@@ -1,0 +1,11 @@
+diff --git a/src/MainWindow.cpp b/src/MainWindow.cpp
+--- a/src/MainWindow.cpp
++++ b/src/MainWindow.cpp
+@@ -201,5 +201,7 @@ MainWindow::MainWindow(IAudioService* audioService,
+         connect(&DspConfig::instance(), &DspConfig::configBuffered, this, &MainWindow::loadConfig);
+         DspConfig::instance().load();
+ 
++        connect(_settingsFragment->fragment(), &SettingsFragment::launchSetupWizard, this, &MainWindow::launchFirstRunSetup);
++
+         //connect(_styleHelper, &StyleHelper::iconColorChanged, _settingsFragment->fragment(), &SettingsFragment::updateButtonStyle);
+     }
