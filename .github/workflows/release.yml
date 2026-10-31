@@ -77,11 +77,11 @@ jobs:
             [[ ${#packages[@]} -eq 1 ]] || {
               echo "Expected exactly one non-debug $profile package"; exit 1;
             }
-            metadata=$(bsdtar -xOf "$packages[0]}" .PKGINFO)
+            metadata=$(bsdtar -xOf "${packages[0]}" .PKGINFO)
             grep -Fxq "pkgname = jamesdsp-native-arch" <<< "$metadata"
             grep -Fxq "pkgver = $VERSION-1" <<< "$metadata"
             name="jamesdsp-native-arch-$VERSION-$profile-x86_64.pkg.tar.zst"
-            cp -- "$packages[0]}" "release/$name"
+            cp -- "${packages[0]}" "release/$name"
           done
           (cd release && sha256sum jamesdsp-native-arch-*.pkg.tar.zst > SHA256SUMS)
           cat release/SHA256SUMS
