@@ -39,6 +39,10 @@ jobs:
     needs: layout-smoke
     runs-on: ubuntu-latest
     container: archlinux:base-devel
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
+      CCACHE_MAXSIZE: 400M
+      CCACHE_COMPILERCHECK: content
     strategy:
       fail-fast: false
       matrix:
@@ -47,14 +51,39 @@ jobs:
       - uses: actions/checkout@v7.0.1
       - name: Prepare Arch build environment
         run: |
-          pacman -Syu --noconfirm --needed git python sudo
+          pacman -Syu --noconfirm --needed git python sudo ccache
           useradd -m builder
           printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
-      - name: Build and check package
+          test -x /usr/lib/ccache/bin/g++
+          test -x /usr/lib/ccache/bin/gcc
+
+      - name: Restore compiler object cache
+        uses: actions/cache@v5
+        with:
+          path: .ccache
+          # One new cache per run; restore previous builds for the same profile.
+          key: jdsp-ccache-v1-${{ runner.os }}-${{ matrix.profile }}-${{ github.run_id }}
+          restore-keys: |
+            jdsp-ccache-v1-${{ runner.os }}-${{ matrix.profile }}-
+
+      - name: Build and check package with ccache
+        shell: bash
         env:
           JDSP_NATIVE_PROFILE: ${{ matrix.profile }}
-        run: sudo -u builder --preserve-env=JDSP_NATIVE_PROFILE makepkg -p PKGBUILD.source --syncdeps --noconfirm --cleanbuild
+        run: |
+          set -euo pipefail
+          mkdir -p "$CCACHE_DIR"
+          chown -R builder:builder "$CCACHE_DIR"
+          sudo -u builder env \
+            JDSP_NATIVE_PROFILE="$JDSP_NATIVE_PROFILE" \
+            CCACHE_DIR="$CCACHE_DIR" \
+            CCACHE_MAXSIZE="$CCACHE_MAXSIZE" \
+            CCACHE_COMPILERCHECK="$CCACHE_COMPILERCHECK" \
+            CCACHE_BASEDIR="$GITHUB_WORKSPACE" \
+            CCACHE_COMPRESS=1 \
+            PATH="/usr/lib/ccache/bin:$PATH" \
+            bash scripts/ci-build-with-ccache.sh
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: jamesdsp-native-arch-${{ matrix.profile }}
