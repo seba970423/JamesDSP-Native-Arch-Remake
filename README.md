@@ -219,12 +219,23 @@ The `Native PipeWire package` workflow first runs the fast UI smoke gate, then
 builds and checks both Arch source profiles in separate jobs. Artifacts contain
 the application packages, **not** the optional 186 MiB debug-symbol package.
 
-A maintainer can publish a GitHub Release through **Actions → Publish verified
-JamesDSP packages → Run workflow**, on `main`, entering the version
-(`0.2.3`) and the successful **main push** CI run ID. The publishing workflow
-refuses a non-successful run or a mismatched commit, checks package names and
-versions, and attaches standard and RT packages plus a SHA-256 manifest.
-Publishing is an intentional separate step, not automatic on every push.
+**Publishing is automatic after successful CI on `main`.** After the fast
+layout smoke gate and **both** the standard and PREEMPT_RT package jobs succeed,
+the same workflow invokes the release publisher. Pull requests run the checks
+but never publish packages. The publisher verifies both package versions, their
+recorded build profiles, the pinned upstream commit and SHA-256 checksums before
+creating the GitHub Release. Debug packages are excluded.
+
+The GitHub Release tag comes from `pkgver` in `packaging/PKGBUILD.source`
+(currently `0.2.3`). A tag is **never overwritten**. If the version has
+already been published, the publisher skips it; to release new changes, bump
+`pkgver` and keep `pkgrel=1`. A superseded `main` build also skips publishing.
+No separate manual workflow dispatch is necessary. The normal installer
+also refuses an accidental downgrade to bundled 0.2.2 when a newer version is
+already installed; intentional recovery remains available via `./rollback.sh`.
+
+The fast smoke job now runs `actionlint` on the workflow definitions to catch
+malformed GitHub Actions syntax before starting either expensive build.
 
 The bundled 0.2.2 executables are older than the source-built 0.2.3 packages;
 the setup-wizard signal fix only reaches normal installations once v0.2.3 is

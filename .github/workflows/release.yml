@@ -1,111 +1,133 @@
 name: Publish verified JamesDSP packages
 
+# Called only after layout-smoke and both package matrix jobs succeed.
+# Pull-request workflows cannot publish releases.
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: Release version (must match the package version, e.g. 0.2.3)
-        required: true
-        type: string
-      ci_run_id:
-        description: Successful Native PipeWire package push run from current main
-        required: true
-        type: string
+  workflow_call:
 
 permissions:
-  contents: write
-  actions: read
-
-concurrency:
-  group: jamesdsp-release
-  cancel-in-progress: false
+  contents: read
 
 jobs:
   publish:
-    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      actions: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
     steps:
       - uses: actions/checkout@v7.0.1
         with:
           persist-credentials: false
-      - name: Verify release inputs and passing main CI
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ inputs.version }}
-          CI_RUN_ID: ${{ inputs.ci_run_id }}
-          EXPECTED_COMMIT: ${{ github.sha }}
+
+      - name: Determine release version and prevent accidental overwrites
+        id: preflight
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version"; exit 1; }
-          [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid CI run ID"; exit 1; }
-          grep -Fxq "pkgver=$VERSION" packaging/PKGBUILD.source || {
-            echo "Source package version does not match the requested release"; exit 1;
+          VERSION=$(sed -n 's/^pkgver=//p' packaging/PKGBUILD.source)
+          PKGREL=$(sed -n 's/^pkgrel=//p' packaging/PKGBUILD.source)
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo "::error::The source package must declare a valid semver pkgver"; exit 1;
           }
-          run_info=$(gh api "repos/$GH_REPO/actions/runs/$CI_RUN_ID")
-          [[ $(jq -r '.head_sha' <<< "$run_info") == "$EXPECTED_COMMIT" ]] || {
-            echo "Refusing CI run built from a different commit"; exit 1;
+          [[ "$PKGREL" == 1 ]] || {
+            echo "::error::Release builds require pkgrel=1; bump pkgver for a new release"; exit 1;
           }
-          [[ $(jq -r '.head_branch' <<< "$run_info") == main ]] || exit 1
-          [[ $(jq -r '.event' <<< "$run_info") == push ]] || exit 1
-          [[ $(jq -r '.status' <<< "$run_info") == completed ]] || exit 1
-          [[ $(jq -r '.conclusion' <<< "$run_info") == success ]] || exit 1
-          [[ $(jq -r '.path' <<< "$run_info") == .github/workflows/build.yml ]] || exit 1
-          if gh release view "v$VERSION" >/dev/null 2>&1; then
-            echo "Release v$VERSION already exists; refusing overwrite."
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "pkgrel=$PKGREL" >> "$GITHUB_OUTPUT"
+          latest_main=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq '.object.sha')
+          if [[ "$latest_main" != "$GITHUB_SHA" ]]; then
+            echo "A newer main commit exists; skipping the superseded build."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if gh release view "v$VERSION" --repo "$GH_REPO" > /dev/null 2>&1; then
+            echo "Release v$VERSION is already published. Not overwriting it."
+            echo "publish=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ -n $(git ls-remote --tags origin "refs/tags/v$VERSION") ]]; then
+            echo "::error::Tag v$VERSION exists without a published Release; refusing to retarget."
             exit 1
           fi
+          echo "publish=true" >> "$GITHUB_OUTPUT"
 
-      - name: Download exactly the verified CI application packages
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ inputs.version }}
-          CI_RUN_ID: ${{ inputs.ci_run_id }}
+      - name: Download standard application package
+        if: steps.preflight.outputs.publish == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: jamesdsp-native-arch-standard
+          path: retrieved/standard
+          digest-mismatch: error
+
+      - name: Download PREEMPT_RT application package
+        if: steps.preflight.outputs.publish == 'true'
+        uses: actions/download-artifact@v8
+        with:
+          name: jamesdsp-native-arch-rt
+          path: retrieved/rt
+          digest-mismatch: error
+
+      - name: Verify both packages and generate SHA-256 manifest
+        if: steps.preflight.outputs.publish == 'true'
         shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
+          PKGREL: ${{ steps.preflight.outputs.pkgrel }}
         run: |
           set -euo pipefail
           sudo apt-get update -qq
           sudo apt-get install -y -qq libarchive-tools zstd
+          upstream_commit=$(sed -n 's/^_commit=//p' packaging/PKGBUILD.source)
+          [[ "$upstream_commit" =~ ^[0-9a-f]{40}$ ]] || exit 1
           mkdir -p release
           for profile in standard rt; do
-            mkdir -p "retrieved/$profile"
-            gh run download "$CI_RUN_ID" -n "jamesdsp-native-arch-$profile" -D "retrieved/$profile"
             mapfile -t packages < <(find "retrieved/$profile" -maxdepth 1 -type f \
               -name 'jamesdsp-native-arch-[0-9]*-x86_64.pkg.tar.zst' -print)
             [[ ${#packages[@]} -eq 1 ]] || {
-              echo "Expected exactly one non-debug $profile package"; exit 1;
+              echo "::error::Expected exactly one non-debug $profile package"; exit 1;
             }
-            metadata=$(bsdtar -xOf "${packages[0]}" .PKGINFO)
-            grep -Fxq "pkgname = jamesdsp-native-arch" <<< "$metadata"
-            grep -Fxq "pkgver = $VERSION-1" <<< "$metadata"
+            package="${packages[0]}"
+            metadata=$(bsdtar -xOf "$package" .PKGINFO)
+            grep -Fxq 'pkgname = jamesdsp-native-arch' <<< "$metadata"
+            grep -Fxq "pkgver = $VERSION-$PKGREL" <<< "$metadata"
+            build_profile=$(bsdtar -xOf "$package" usr/share/jamesdsp-native-arch/build-profile.json)
+            rt_flag=false
+            [[ "$profile" != rt ]] || rt_flag=true
+            jq -e --arg commit "$upstream_commit" --argjson rt "$rt_flag" \
+              '.upstream_commit == $commit and .rt_patches == $rt' <<< "$build_profile" > /dev/null || {
+                echo "::error::Invalid $profile build-profile.json"; exit 1;
+              }
             name="jamesdsp-native-arch-$VERSION-$profile-x86_64.pkg.tar.zst"
-            cp -- "${packages[0]}" "release/$name"
+            cp -- "$package" "release/$name"
           done
           (cd release && sha256sum jamesdsp-native-arch-*.pkg.tar.zst > SHA256SUMS)
           cat release/SHA256SUMS
           cat > release/RELEASE-NOTES.txt <<EOF
-          JamesDSP Native Arch $VERSION
+          JamesDSP Native Arch v$VERSION
 
-          Verified CI run: https://github.com/$GH_REPO/actions/runs/$CI_RUN_ID
-          Source revision: $GITHUB_SHA
+          Automatically released only after the fast layout smoke test and both
+          standard and PREEMPT_RT package builds passed on main.
 
-          Standard and PREEMPT_RT Arch Linux packages are provided.
-          Debug symbol packages are deliberately excluded.
-          The source recipe and corresponding upstream patch files are available
-          in this repository at the release commit.
+          Source commit: $GITHUB_SHA
+          CI run: https://github.com/$GH_REPO/actions/runs/$GITHUB_RUN_ID
 
-          Quit JamesDSP before installing. Select the RT package only for
-          PREEMPT_RT; the standard package works on ordinary kernels.
+          Arch x86_64 packages: standard and PREEMPT_RT.
+          Both packages include the verified patches from this commit.
+          Debug symbols are intentionally excluded.
+
+          Quit JamesDSP before installing.
+          The normal ./install.sh selects the appropriate kernel profile,
+          verifies SHA-256, and installs this release without local compilation.
           EOF
 
-      - name: Publish GitHub Release with SHA-256 manifest
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          VERSION: ${{ inputs.version }}
+      - name: Publish GitHub Release
+        if: steps.preflight.outputs.publish == 'true'
         shell: bash
+        env:
+          VERSION: ${{ steps.preflight.outputs.version }}
         run: |
           set -euo pipefail
           gh release create "v$VERSION" \
