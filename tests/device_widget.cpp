@@ -61,10 +61,12 @@ int main(int argc, char** argv) {
     assert(!refreshButton->text().contains('\n'));
     auto* newDeviceEffects = widget->findChild<QCheckBox*>("nativeNewDeviceEffects");
     assert(newDeviceEffects);
-    assert(newDeviceEffects->text() == QStringLiteral("Enable effects for new devices"));
-    assert(ui.blocklistInvert->text() == QStringLiteral("Process only allowlisted apps"));
+    assert(newDeviceEffects->text() == QStringLiteral("New-device effects"));
+    assert(ui.blocklistInvert->text() == QStringLiteral("Allowlist only"));
     assert(!newDeviceEffects->text().contains('\n'));
     assert(!ui.blocklistInvert->text().contains('\n'));
+    assert(newDeviceEffects->toolTip() == QStringLiteral("Enable effects automatically for new devices."));
+    assert(ui.blocklistInvert->toolTip() == QStringLiteral("Process only allowlisted apps."));
     status->setText("Kernel: PREEMPT_RT\nInstalled profile: PREEMPT_RT\nReal-time threads: 2");
     const auto originalFont = app.font();
     for (int points : {9, 12, 16}) {
