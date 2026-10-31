@@ -56,6 +56,9 @@ int main(int argc, char** argv) {
     auto* scroll = form.findChild<QScrollArea*>("nativeDevicesScroll");
     auto* status = widget->findChild<QLabel*>("nativeKernelStatus");
     assert(scroll && status && widget->parentWidget() == scroll->widget());
+    auto* refreshButton = widget->findChild<QPushButton*>("nativeDeviceRefresh");
+    assert(refreshButton && refreshButton->text() == QStringLiteral("Refresh devices and status"));
+    assert(!refreshButton->text().contains('\n'));
     status->setText("Kernel: PREEMPT_RT\nInstalled profile: PREEMPT_RT\nReal-time threads: 2");
     const auto originalFont = app.font();
     for (int points : {9, 12, 16}) {
@@ -99,6 +102,7 @@ int main(int argc, char** argv) {
                           << std::endl;
             }
             assert(scroll->horizontalScrollBar()->maximum() == 0);
+            assert(refreshButton->fontMetrics().horizontalAdvance(refreshButton->text()) + 12 <= refreshButton->width());
             for (int i = 0; i < widget->layout()->count(); ++i) {
                 auto* control = widget->layout()->itemAt(i)->widget();
                 assert(control && widget->rect().contains(control->geometry()));

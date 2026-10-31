@@ -45,7 +45,7 @@ index ec06dba..5838247 100644
      kernelStatus->setWordWrap(true);
      layout->addWidget(kernelStatus);
 -    auto* refreshButton = new QPushButton(tr("Refresh devices and real-time status"), this);
-+    auto* refreshButton = new QPushButton(tr("Refresh devices\nand status"), this);
++    auto* refreshButton = new QPushButton(tr("Refresh devices and status"), this);
 +    refreshButton->setObjectName("nativeDeviceRefresh");
      layout->addWidget(refreshButton);
      connect(refreshButton, &QPushButton::clicked, this, [this] { refresh(); refreshKernel(); });
