@@ -27,6 +27,7 @@ source=(
   '0002-optional-rt-scratch.patch'
   '0003-responsive-interface.patch'
   '0004-tray-icon-appearance.patch'
+  '0005-restore-setup-wizard.patch'
   'kernel_info.py'
   'diagnostics.py'
 )
@@ -36,6 +37,7 @@ sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP' 'SKIP'
             '43a0eb0c1a366911d3f941566176763bbb18b88278f55a4f30867da8588b84b1'
             'cb1db00918c6c14623a21d21a0513ad65d665a35ce9f0b6ce4d8ee7e23fc7b1d'
             '63bd75b83d0e9f898d3749b331206ccf5df8512c34c8676cba88300c2e985ee4'
+            '8fea9933c23aae6572f3482c675063d81222fa786cebbddf38736ec2738ff8ba'
             'd97ece470d1f1513d5e456b812aab70e2ed31e7cb3b7334802eda3ea48609112'
             '8241f0596f75daa9a0def50fe1a539d0c8213def547b5647aa77d926bdfc6cf6')
 
@@ -53,6 +55,8 @@ prepare() {
   git apply "${srcdir}/0003-responsive-interface.patch"
   git apply --check "${srcdir}/0004-tray-icon-appearance.patch"
   git apply "${srcdir}/0004-tray-icon-appearance.patch"
+  git apply --check "${srcdir}/0005-restore-setup-wizard.patch"
+  git apply "${srcdir}/0005-restore-setup-wizard.patch"
   local profile=${JDSP_NATIVE_PROFILE:-}
   [[ -n ${profile} ]] || profile=$(python "${srcdir}/kernel_info.py" --profile)
   case ${profile} in

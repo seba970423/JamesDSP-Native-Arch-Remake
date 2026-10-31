@@ -17,6 +17,7 @@ if [[ -z ${source_tree} ]]; then
 fi
 source_tree=$(cd -- "${source_tree}" && pwd)
 export JDSP_TEST_SOURCE_TREE="${source_tree}"
+python3 "${repo_root}/scripts/check-setup-wizard.py" "${source_tree}"
 build_dir=$(mktemp -d)
 trap 'rm -rf -- "${build_dir}"' EXIT
 read -r -a qt_flags <<< "$(pkg-config --cflags --libs Qt6Core)"
