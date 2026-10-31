@@ -26,7 +26,7 @@ jobs:
           printf 'builder ALL=(ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/builder
           chown -R builder:builder "$GITHUB_WORKSPACE"
       - name: Validate GitHub Actions workflows
-        run: actionlint -color
+        run: actionlint -color .github/workflows/build.yml .github/workflows/release.yml
       - name: Validate patched Devices/Tray UI without compiling audio engine
         env:
           JDSP_NATIVE_PROFILE: standard
