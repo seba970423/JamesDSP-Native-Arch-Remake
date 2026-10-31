@@ -24,14 +24,16 @@ is useful when the panel and application use different color schemes.
 
 ## Hardware and CI status (updated 2026-10-31)
 
-The maintainer reports working installations on **three machines**. Arch Linux
-and Arch-based distributions remain the supported installation targets:
+The maintainer reports working installations on **three machines**, all running
+the custom **PREEMPT_RT + BORE (RT-BORE)** kernel with a hardware-specific build
+profile for each system. Arch Linux and Arch-based distributions remain the
+supported installation targets:
 
-| System | Initial real-hardware results |
-| --- | --- |
-| Desktop PC (CachyOS/KDE Plasma) | Installed and working for music playback. Device-effects controls are available; previously intermittent audio glitches and hissing have not been observed in recent listening. |
-| Dell Latitude 7490 | Successfully cloned and installed. Playback and the interface are working in initial use; no audio glitches have been noticed so far. |
-| Lenovo ThinkPad T590 | Installed and reported working in initial use. The exact distribution, kernel profile, and device-specific test coverage for this machine are not documented here. |
+| System | RT-BORE hardware profile | Real-hardware results |
+| --- | --- | --- |
+| Desktop PC (CachyOS/KDE Plasma) | Desktop-specific | Installed and working for music playback. Device-effects controls are available; previously intermittent audio glitches and hissing have not been observed in recent listening. |
+| Dell Latitude 7490 | Dell-specific | Successfully cloned and installed. Playback and the interface are working in initial use; no audio glitches have been noticed so far. |
+| Lenovo ThinkPad T590 | ThinkPad-specific | Installed and confirmed working during real-world use. |
 
 These are **maintainer-reported observations**, not exhaustive compatibility
 certification or a guarantee of glitch-free playback. Longer-duration testing,
@@ -222,9 +224,10 @@ The binary package's `check()` verifies the selected engine, probes its loader
 with `--help`, and runs the portable checks. These supplied engines were built
 on Ubuntu 24.04 with GCC 13.3.0, Qt 6.4.2 and PipeWire 1.0.5; they use native
 shared libraries and require glibc 2.38 or later. Initial Arch-based hardware
-playback has been reported working on the desktop and Dell, with an additional
-working installation reported on the ThinkPad T590. Broader compatibility,
-configuration-specific behavior, and long-term stability remain unverified. See
+playback has been reported working on the desktop, Dell Latitude 7490 and
+ThinkPad T590, all with their respective RT-BORE hardware profiles. Broader
+compatibility, configuration-specific behavior, and long-term stability remain
+unverified. See
 [VALIDATION.md](VALIDATION.md) for build-environment test details.
 
 Maintainers can explicitly build the source recipe instead:
