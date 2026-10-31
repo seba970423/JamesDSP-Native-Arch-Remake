@@ -3,18 +3,23 @@
 [![Native PipeWire package CI](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/workflows/build.yml/badge.svg)](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/workflows/build.yml)
 
 Upstream JamesDSP, patched and packaged natively for Arch Linux and CachyOS.
-**PipeWire only. Experimental binary release: 0.2.2, x86_64.**
+**PipeWire only. Latest release: [v0.2.3](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/releases/tag/v0.2.3), x86_64 (experimental).**
 
-The normal installer uses prebuilt engines. It does not clone upstream, download
-submodules, or compile JamesDSP on your machine. The packaging follows the AUR
+The normal installer selects the SHA-256-verified **standard or PREEMPT_RT
+package from the latest published GitHub Release** based on your running kernel.
+It does not compile JamesDSP or download the upstream source on your machine.
+[Release v0.2.3](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/releases/tag/v0.2.3)
+was built and checked by GitHub Actions and includes the setup-wizard fix.
+
+For offline-bundle compatibility when no newer release is available (or when
+using `--no-update`), this repository still contains the **older 0.2.2**
+standard and RT engines, verified by SHA-256. That fallback follows the AUR
 [jamesdsp-pipewire-bin recipe](https://github.com/archlinux/aur/blob/jamesdsp-pipewire-bin/PKGBUILD):
-unpack the official PipeWire binary package, then package its resources with this
-project's already-patched engine. Installing the stock upstream binary alone
-would not include the device controls below.
-
-Both standard and optional RT engines are bundled and verified by SHA-256. The
-source patches remain maintained separately; complete corresponding engine
-sources accompany the binaries in `prebuilt/corresponding-source-v0.2.2.tar.xz`.
+it unpacks the official PipeWire package and replaces the stock executable
+with this project's patched engine. The corresponding sources for those
+**0.2.2 fallback engines** are in
+`prebuilt/corresponding-source-v0.2.2.tar.xz`; the v0.2.3 source and patches
+are available from the tagged Git repository.
 
 Choose the tray icon under **Settings → Tray icon → Icon appearance**:
 Automatic, Light (for dark panels), Dark (for light panels), or Color (app icon).
@@ -40,19 +45,19 @@ certification or a guarantee of glitch-free playback. Longer-duration testing,
 different Bluetooth/wired routes, application switching and other hardware
 configurations still matter.
 
-The [post-merge GitHub Actions run](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/40945452708)
-passed **all three checks** on `main`:
+The [v0.2.3 GitHub Actions run](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/41224024136)
+passed the following checks on `main`, then published both release packages:
 
 - `layout-smoke`: Quickly checks the patched Devices/Tray layouts and EQ
   readability without compiling the complete DSP application.
 - `package (standard)`: Builds and checks the standard source package.
 - `package (rt)`: Builds and checks the optional PREEMPT_RT source package.
 
-The smoke check runs before the two full source builds, preventing expensive
-compilation when those UI regression tests fail. **Passing CI does not prove
-every runtime behavior is correct.** The source-built CI packages are also
-**distinct from the Ubuntu-built, checksum-verified prebuilt engines** selected
-by the normal `./install.sh` workflow.
+The smoke check runs before the two full source builds, avoiding expensive
+compilation when a known UI regression is detected. **Passing CI does not prove
+every runtime behavior is correct.** Current v0.2.3 release packages are built
+from the tested source; they are distinct from the older Ubuntu-built 0.2.2
+fallback engines bundled in the repository.
 
 ## Install
 
@@ -189,16 +194,18 @@ expected. A PREEMPT_RT kernel alone does not establish the audio worker's policy
 
 Patches are already included in the distributed engines. Booting a different
 kernel does not change the installed engine. The app still detects the new
-running kernel; rerun `./install.sh --no-update` to select the matching prebuilt
-profile. Both engine variants can run on an ordinary kernel.
+running kernel; rerun `./install.sh` to select the matching verified release
+profile. `--no-update` intentionally selects the older bundled 0.2.2 engines
+and is not the normal update path. Both profiles can run on an ordinary kernel.
 
 ## Updates, rollback and removal
 
 ```bash
-./update.sh                    # check for this project's binary releases
-./install.sh --no-update        # package/install this bundle's prebuilt engine
-./rollback.sh --known-good      # reinstall the latest user-approved package
-./rollback.sh                   # reinstall the preceding approved generation
+./update.sh                    # check GitHub Releases
+./install.sh                   # install the latest verified package for your kernel
+./install.sh --no-update       # use bundled 0.2.2 fallback (downgrades blocked)
+./rollback.sh --known-good     # reinstall the latest user-approved package
+./rollback.sh                  # reinstall the preceding approved generation
 ./uninstall.sh
 ```
 
@@ -208,10 +215,11 @@ is retained as `previous`. Rollback verifies the stored package checksum before
 asking pacman to install it. Uninstall removes package-owned files and keeps
 your presets and device rules.
 
-The release check reports a newer published bundle's link. Download and extract
-that complete bundle to update. Until releases are published, the bundled
-verified engines are used. The installer never substitutes an unpatched upstream
-engine or starts a source compilation as an update fallback.
+The installer checks GitHub Releases and downloads the current standard or RT
+package with SHA-256 verification. If no newer release exists, it can use the
+bundled 0.2.2 fallback, but refuses to downgrade an already-installed newer
+package. A broken checksum stops installation. The installer never substitutes
+an unpatched upstream executable or starts a source compilation as a fallback.
 
 ## Publishing tested packages
 
@@ -237,9 +245,9 @@ already installed; intentional recovery remains available via `./rollback.sh`.
 The fast smoke job now runs `actionlint` on the workflow definitions to catch
 malformed GitHub Actions syntax before starting either expensive build.
 
-The bundled 0.2.2 executables are older than the source-built 0.2.3 packages;
-the setup-wizard signal fix only reaches normal installations once v0.2.3 is
-published and the installer selects its verified release package.
+**v0.2.3 is published.** The setup-wizard signal fix is included in its
+verified standard and RT packages; `./install.sh` selects them automatically.
+The bundled 0.2.2 fallback remains available separately.
 
 ## Development and testing
 
@@ -254,10 +262,10 @@ tests execute the production controller against a deterministic PipeWire
 boundary: default changes, user-selected destinations, app exclusions, exit
 restoration, and reused node IDs. They supplement real PipeWire/hardware tests.
 
-The binary package's `check()` verifies the selected engine, probes its loader
-with `--help`, and runs the portable checks. These supplied engines were built
-on Ubuntu 24.04 with GCC 13.3.0, Qt 6.4.2 and PipeWire 1.0.5; they use native
-shared libraries and require glibc 2.38 or later. Initial Arch-based hardware
+The bundled 0.2.2 fallback package's `check()` verifies the selected engine,
+probes its loader with `--help`, and runs the portable checks. Those fallback
+engines were built on Ubuntu 24.04 with GCC 13.3.0, Qt 6.4.2 and PipeWire
+1.0.5; they use native shared libraries and require glibc 2.38 or later. Initial Arch-based hardware
 playback has been reported working on the desktop, Dell Latitude 7490 and
 ThinkPad T590, all with their respective RT-BORE hardware profiles. Broader
 compatibility, configuration-specific behavior, and long-term stability remain
@@ -274,9 +282,10 @@ Maintainers can explicitly build the source recipe instead:
 The source path is separate from the normal installer. It forces Git transfer
 progress and records compilation output in a log with 30-second elapsed-time
 updates. Arch CI uses `packaging/PKGBUILD.source` and now runs the fast Qt/EQ
-smoke gate followed by complete standard and RT source package checks; all three
-passed on `main` on 2026-10-29. This does not mean the normal installer uses
-those source-build artifacts.
+smoke gate followed by complete standard and RT source package checks. The
+successful [v0.2.3 release run](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/41224024136)
+then published those packages, which the normal installer now downloads and
+verifies. Subsequent versions require a version bump before publishing.
 
 See [docs/testing.md](docs/testing.md) for the hardware checklist and Brave's audio
 replay investigation. The maintainer reports no recurrence of earlier audio
