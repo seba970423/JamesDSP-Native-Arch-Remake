@@ -70,10 +70,16 @@ normal package list and confirmation prompt. You do not need to install them
 manually beforehand. Kernel detection and Python-based checks run after this
 step. If you decline the package transaction or it fails, installation stops.
 
-It then checks this project's binary releases, detects the running kernel,
-downloads and verifies the official binary base,
-selects the patched engine, repackages the files, and installs with pacman.
-`makepkg` prepares an Arch package here; it does not compile C++.
+The installer detects the running kernel and checks published GitHub Releases.
+When a newer release exists, it selects the matching **standard or PREEMPT_RT**
+Arch package, verifies its SHA-256 against that release's `SHA256SUMS`, and installs
+with pacman **without compiling JamesDSP**. A failed verification stops the
+installation instead of silently downgrading. When there is no newer release,
+it falls back to the bundled, checksum-verified 0.2.2 engines: the official base
+is downloaded, its engine is replaced with the bundled patched executable, and
+`makepkg` packages the result without compiling C++. `--no-update` explicitly
+selects this bundled fallback. Debug-symbol packages are excluded from GitHub
+Release downloads.
 
 Downloads show a progress bar, percentage, transferred bytes and speed. Engine
 preparation and package assembly show percentages based on completed steps.
@@ -206,6 +212,23 @@ The release check reports a newer published bundle's link. Download and extract
 that complete bundle to update. Until releases are published, the bundled
 verified engines are used. The installer never substitutes an unpatched upstream
 engine or starts a source compilation as an update fallback.
+
+## Publishing tested packages
+
+The `Native PipeWire package` workflow first runs the fast UI smoke gate, then
+builds and checks both Arch source profiles in separate jobs. Artifacts contain
+the application packages, **not** the optional 186 MiB debug-symbol package.
+
+A maintainer can publish a GitHub Release through **Actions → Publish verified
+JamesDSP packages → Run workflow**, on `main`, entering the version
+(`0.2.3`) and the successful **main push** CI run ID. The publishing workflow
+refuses a non-successful run or a mismatched commit, checks package names and
+versions, and attaches standard and RT packages plus a SHA-256 manifest.
+Publishing is an intentional separate step, not automatic on every push.
+
+The bundled 0.2.2 executables are older than the source-built 0.2.3 packages;
+the setup-wizard signal fix only reaches normal installations once v0.2.3 is
+published and the installer selects its verified release package.
 
 ## Development and testing
 

@@ -60,8 +60,22 @@ cleanup() {
 trap cleanup EXIT
 jdsp_ensure_dependencies install "${depends[@]}" "${makedepends[@]}"
 detect_kernel
-if ${update}; then ./update.sh; fi
-python3 scripts/run_logged.py --label 'Checking installer' --log "${JDSP_LOG_DIR}/checks-$(date +%Y%m%d-%H%M%S).log" -- ./test.sh
+candidate=
+if ${update}; then
+  ./update.sh
+  release_file="${repo_root}/jamesdsp-native-arch-${JDSP_NATIVE_PROFILE}-release.pkg.tar.zst"
+  release_status=0
+  python3 scripts/fetch_release.py --profile "${JDSP_NATIVE_PROFILE}" --destination "${release_file}" || release_status=$?
+  case "$release_status" in
+    0) candidate=$release_file; printf 'Verified GitHub Release selected: %s\n' "$candidate" ;;
+    3) printf '%s\n' 'No newer published release; using the bundled, verified engine.' ;;
+    *) printf '%s\n' 'Release verification failed; refusing silent downgrade.' >&2; exit 1 ;;
+  esac
+else
+  printf '%s\n' 'Release checks disabled (--no-update); selecting bundled 0.2.2 engine.'
+fi
+if [[ -z "$candidate" ]]; then
+  python3 scripts/run_logged.py --label 'Checking installer' --log "${JDSP_LOG_DIR}/checks-$(date +%Y%m%d-%H%M%S).log" -- ./test.sh
 python3 scripts/download.py "${_base_url}" "${repo_root}/${_base_filename}" "${_base_sha256}"
 if ${countdown}; then
   printf '%s\n' 'Preparing the prebuilt native package in 5 seconds. Ctrl+C cancels.'
@@ -73,6 +87,12 @@ python3 scripts/run_logged.py --label 'Preparing binary package' --log "${JDSP_L
 # shellcheck source=scripts/package.sh
 source "${repo_root}/scripts/package.sh"
 candidate=$(jdsp_find_package)
+fi
+# Check the package's internal metadata, not the downloaded filename.
+[[ $(pacman -Qpq -- "$candidate") == jamesdsp-native-arch ]] || {
+  printf 'Unexpected package name in %s; refusing installation.\n' "$candidate" >&2
+  exit 1
+}
 printf '%s\n' 'Exit any running JamesDSP instance before launching the newly installed version.'
 printf '%s\n' 'Installing the native package; pacman will show percentage bars.'
 jdsp_run_pacman -U "${candidate}" >&3 2>&4

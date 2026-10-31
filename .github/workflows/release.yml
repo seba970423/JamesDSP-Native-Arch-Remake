@@ -30,11 +30,11 @@ jobs:
           persist-credentials: false
       - name: Verify release inputs and passing main CI
         env:
-          GH_TOKEN: ${ github.token }}
-          GH_REPO: ${ github.repository }}
-          VERSION: ${ inputs.version }}
-          CI_RUN_ID: ${ inputs.ci_run_id }}
-          EXPECTED_COMMIT: ${ github.sha }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
+          EXPECTED_COMMIT: ${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
@@ -59,10 +59,10 @@ jobs:
 
       - name: Download exactly the verified CI application packages
         env:
-          GH_TOKEN: ${ github.token }}
-          GH_REPO: ${ github.repository }}
-          VERSION: ${ inputs.version }}
-          CI_RUN_ID: ${ inputs.ci_run_id }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
+          CI_RUN_ID: ${{ inputs.ci_run_id }}
         shell: bash
         run: |
           set -euo pipefail
@@ -102,9 +102,9 @@ jobs:
 
       - name: Publish GitHub Release with SHA-256 manifest
         env:
-          GH_TOKEN: ${ github.token }}
-          GH_REPO: ${ github.repository }}
-          VERSION: ${ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          VERSION: ${{ inputs.version }}
         shell: bash
         run: |
           set -euo pipefail

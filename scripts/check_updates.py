@@ -18,8 +18,8 @@ def main():
             print("The bundled prebuilt release is current:", CURRENT)
         else:
             print("Published prebuilt release:", tag)
-            print("Download its complete bundle to update:", release.get("html_url", URL))
-            print("Continuing with this bundle's verified engines:", CURRENT)
+            print("The normal ./install.sh will download the verified package for your running kernel.")
+            print("Release:", release.get("html_url", URL))
     except urllib.error.HTTPError as error:
         if error.code == 404:
             print("No binary release is published yet. Using the bundled verified engines:", CURRENT)
