@@ -56,4 +56,6 @@ jobs:
       - uses: actions/upload-artifact@v7.0.2
         with:
           name: jamesdsp-native-arch-${{ matrix.profile }}
-          path: '*.pkg.tar.zst'
+          # Exclude the large split -debug package from user-facing downloads.
+          path: 'jamesdsp-native-arch-[0-9]*-x86_64.pkg.tar.zst'
+          if-no-files-found: error
