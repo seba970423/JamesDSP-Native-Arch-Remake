@@ -245,6 +245,13 @@ already installed; intentional recovery remains available via `./rollback.sh`.
 The fast smoke job now runs `actionlint` on the workflow definitions to catch
 malformed GitHub Actions syntax before starting either expensive build.
 
+The standard and PREEMPT_RT jobs also use separate, bounded `ccache` stores
+persisted with GitHub Actions caching. Cached compilation objects are reused
+only when source, compiler and flags match; the existing `makepkg` build and
+`check()` tests still run. Each job reports its cache hit/miss statistics and
+fails if the compiler bypasses `ccache`. Initial builds are typically still
+cold; improvement on later builds depends on the cache hit rate.
+
 **v0.2.3 is published.** The setup-wizard signal fix is included in its
 verified standard and RT packages; `./install.sh` selects them automatically.
 The bundled 0.2.2 fallback remains available separately.
