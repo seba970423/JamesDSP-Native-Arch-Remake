@@ -1,0 +1,117 @@
+name: Publish verified JamesDSP packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (must match the package version, e.g. 0.2.3)
+        required: true
+        type: string
+      ci_run_id:
+        description: Successful Native PipeWire package push run from current main
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: jamesdsp-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Verify release inputs and passing main CI
+        env:
+          GH_TOKEN: ${ github.token }}
+          GH_REPO: ${ github.repository }}
+          VERSION: ${ inputs.version }}
+          CI_RUN_ID: ${ inputs.ci_run_id }}
+          EXPECTED_COMMIT: ${ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid version"; exit 1; }
+          [[ "$CI_RUN_ID" =~ ^[0-9]+$ ]] || { echo "Invalid CI run ID"; exit 1; }
+          grep -Fxq "pkgver=$VERSION" packaging/PKGBUILD.source || {
+            echo "Source package version does not match the requested release"; exit 1;
+          }
+          run_info=$(gh api "repos/$GH_REPO/actions/runs/$CI_RUN_ID")
+          [[ $(jq -r '.head_sha' <<< "$run_info") == "$EXPECTED_COMMIT" ]] || {
+            echo "Refusing CI run built from a different commit"; exit 1;
+          }
+          [[ $(jq -r '.head_branch' <<< "$run_info") == main ]] || exit 1
+          [[ $(jq -r '.event' <<< "$run_info") == push ]] || exit 1
+          [[ $(jq -r '.status' <<< "$run_info") == completed ]] || exit 1
+          [[ $(jq -r '.conclusion' <<< "$run_info") == success ]] || exit 1
+          [[ $(jq -r '.path' <<< "$run_info") == .github/workflows/build.yml ]] || exit 1
+          if gh release view "v$VERSION" >/dev/null 2>&1; then
+            echo "Release v$VERSION already exists; refusing overwrite."
+            exit 1
+          fi
+
+      - name: Download exactly the verified CI application packages
+        env:
+          GH_TOKEN: ${ github.token }}
+          GH_REPO: ${ github.repository }}
+          VERSION: ${ inputs.version }}
+          CI_RUN_ID: ${ inputs.ci_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libarchive-tools zstd
+          mkdir -p release
+          for profile in standard rt; do
+            mkdir -p "retrieved/$profile"
+            gh run download "$CI_RUN_ID" -n "jamesdsp-native-arch-$profile" -D "retrieved/$profile"
+            mapfile -t packages < <(find "retrieved/$profile" -maxdepth 1 -type f \
+              -name 'jamesdsp-native-arch-[0-9]*-x86_64.pkg.tar.zst' -print)
+            [[ ${#packages[@]} -eq 1 ]] || {
+              echo "Expected exactly one non-debug $profile package"; exit 1;
+            }
+            metadata=$(bsdtar -xOf "${packages[0]}" .PKGINFO)
+            grep -Fxq "pkgname = jamesdsp-native-arch" <<< "$metadata"
+            grep -Fxq "pkgver = $VERSION-1" <<< "$metadata"
+            name="jamesdsp-native-arch-$VERSION-$profile-x86_64.pkg.tar.zst"
+            cp -- "${packages[0]}" "release/$name"
+          done
+          (cd release && sha256sum jamesdsp-native-arch-*.pkg.tar.zst > SHA256SUMS)
+          cat release/SHA256SUMS
+          cat > release/RELEASE-NOTES.txt <<EOF
+          JamesDSP Native Arch $VERSION
+
+          Verified CI run: https://github.com/$GH_REPO/actions/runs/$CI_RUN_ID
+          Source revision: $GITHUB_SHA
+
+          Standard and PREEMPT_RT Arch Linux packages are provided.
+          Debug symbol packages are deliberately excluded.
+          The source recipe and corresponding upstream patch files are available
+          in this repository at the release commit.
+
+          Quit JamesDSP before installing. Select the RT package only for
+          PREEMPT_RT; the standard package works on ordinary kernels.
+          EOF
+
+      - name: Publish GitHub Release with SHA-256 manifest
+        env:
+          GH_TOKEN: ${ github.token }}
+          GH_REPO: ${ github.repository }}
+          VERSION: ${ inputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "v$VERSION" \
+            release/jamesdsp-native-arch-*.pkg.tar.zst \
+            release/SHA256SUMS \
+            --target "$GITHUB_SHA" \
+            --title "JamesDSP Native Arch v$VERSION" \
+            --notes-file release/RELEASE-NOTES.txt \
+            --latest

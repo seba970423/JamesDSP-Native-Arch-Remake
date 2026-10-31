@@ -1,6 +1,6 @@
 # Maintainer: Sebastian George
 pkgname=jamesdsp-native-arch
-pkgver=0.2.2.r20261001.g3ea7d73
+pkgver=0.2.3
 pkgrel=1
 pkgdesc='JamesDSP with per-device effects rules and optional PREEMPT_RT patches (PipeWire only)'
 arch=('x86_64')
