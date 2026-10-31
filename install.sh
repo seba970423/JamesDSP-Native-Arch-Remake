@@ -93,6 +93,15 @@ fi
   printf 'Unexpected package name in %s; refusing installation.\n' "$candidate" >&2
   exit 1
 }
+# Never let a bundled fallback silently replace a newer, source-built install.
+# Explicit rollbacks remain available through rollback.sh.
+candidate_version=$(pacman -Qp -- "$candidate" | awk '{print $2}')
+installed_version=$(pacman -Q jamesdsp-native-arch 2>/dev/null | awk '{print $2}' || true)
+if [[ -n $installed_version ]] && (( $(vercmp "$candidate_version" "$installed_version") < 0 )); then
+  printf 'Refusing to downgrade JamesDSP from %s to %s. Use rollback.sh for an intentional rollback.\n' \
+    "$installed_version" "$candidate_version" >&2
+  exit 1
+fi
 printf '%s\n' 'Exit any running JamesDSP instance before launching the newly installed version.'
 printf '%s\n' 'Installing the native package; pacman will show percentage bars.'
 jdsp_run_pacman -U "${candidate}" >&3 2>&4
