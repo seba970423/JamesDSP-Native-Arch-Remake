@@ -1,15 +1,16 @@
 # JamesDSP Native Arch
 
 [![Native PipeWire package CI](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/workflows/build.yml/badge.svg)](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/workflows/build.yml)
+[![Latest GitHub release](https://img.shields.io/github/v/release/seba970423/JamesDSP-Native-Arch-Remake?label=latest%20release)](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/releases/latest)
 
 Upstream JamesDSP, patched and packaged natively for Arch Linux and CachyOS.
-**PipeWire only. Latest release: [v0.2.3](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/releases/tag/v0.2.3), x86_64 (experimental).**
+**PipeWire only. [Latest verified release](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/releases/latest) for x86_64 (experimental).**
 
 The normal installer selects the SHA-256-verified **standard or PREEMPT_RT
 package from the latest published GitHub Release** based on your running kernel.
 It does not compile JamesDSP or download the upstream source on your machine.
-[Release v0.2.3](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/releases/tag/v0.2.3)
-was built and checked by GitHub Actions and includes the setup-wizard fix.
+[The latest release](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/releases/latest) is built and checked by
+GitHub Actions and includes the setup-wizard fix first shipped in v0.2.3.
 
 For offline-bundle compatibility when no newer release is available (or when
 using `--no-update`), this repository still contains the **older 0.2.2**
@@ -18,8 +19,8 @@ standard and RT engines, verified by SHA-256. That fallback follows the AUR
 it unpacks the official PipeWire package and replaces the stock executable
 with this project's patched engine. The corresponding sources for those
 **0.2.2 fallback engines** are in
-`prebuilt/corresponding-source-v0.2.2.tar.xz`; the v0.2.3 source and patches
-are available from the tagged Git repository.
+`prebuilt/corresponding-source-v0.2.2.tar.xz`; current release sources and
+patches are available from the corresponding Git release tag.
 
 Choose the tray icon under **Settings → Tray icon → Icon appearance**:
 Automatic, Light (for dark panels), Dark (for light panels), or Color (app icon).
@@ -45,7 +46,7 @@ certification or a guarantee of glitch-free playback. Longer-duration testing,
 different Bluetooth/wired routes, application switching and other hardware
 configurations still matter.
 
-The [v0.2.3 GitHub Actions run](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/41224024136)
+The [v0.2.4 release build](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/41235215748)
 passed the following checks on `main`, then published both release packages:
 
 - `layout-smoke`: Quickly checks the patched Devices/Tray layouts and EQ
@@ -55,7 +56,7 @@ passed the following checks on `main`, then published both release packages:
 
 The smoke check runs before the two full source builds, avoiding expensive
 compilation when a known UI regression is detected. **Passing CI does not prove
-every runtime behavior is correct.** Current v0.2.3 release packages are built
+every runtime behavior is correct.** Published release packages are built
 from the tested source; they are distinct from the older Ubuntu-built 0.2.2
 fallback engines bundled in the repository.
 
@@ -234,8 +235,8 @@ but never publish packages. The publisher verifies both package versions, their
 recorded build profiles, the pinned upstream commit and SHA-256 checksums before
 creating the GitHub Release. Debug packages are excluded.
 
-The GitHub Release tag comes from `pkgver` in `packaging/PKGBUILD.source`
-(currently `0.2.3`). A tag is **never overwritten**. If the version has
+The GitHub Release tag comes from `pkgver` in `packaging/PKGBUILD.source`.
+A tag is **never overwritten**. If the version has
 already been published, the publisher skips it; to release new changes, bump
 `pkgver` and keep `pkgrel=1`. A superseded `main` build also skips publishing.
 No separate manual workflow dispatch is necessary. The normal installer
@@ -252,9 +253,9 @@ only when source, compiler and flags match; the existing `makepkg` build and
 fails if the compiler bypasses `ccache`. Initial builds are typically still
 cold; improvement on later builds depends on the cache hit rate.
 
-**v0.2.3 is published.** The setup-wizard signal fix is included in its
-verified standard and RT packages; `./install.sh` selects them automatically.
-The bundled 0.2.2 fallback remains available separately.
+The setup-wizard signal fix first shipped in v0.2.3 and is included in the
+latest verified standard and RT packages, selected automatically by
+`./install.sh`. The bundled 0.2.2 fallback remains available separately.
 
 ## Development and testing
 
@@ -290,9 +291,9 @@ The source path is separate from the normal installer. It forces Git transfer
 progress and records compilation output in a log with 30-second elapsed-time
 updates. Arch CI uses `packaging/PKGBUILD.source` and now runs the fast Qt/EQ
 smoke gate followed by complete standard and RT source package checks. The
-successful [v0.2.3 release run](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/41224024136)
-then published those packages, which the normal installer now downloads and
-verifies. Subsequent versions require a version bump before publishing.
+successful [v0.2.4 release run](https://github.com/seba970423/JamesDSP-Native-Arch-Remake/actions/runs/41235215748)
+published both packages, which the normal installer downloads and verifies.
+Subsequent releases require a version bump before publishing.
 
 See [docs/testing.md](docs/testing.md) for the hardware checklist and Brave's audio
 replay investigation. The maintainer reports no recurrence of earlier audio
